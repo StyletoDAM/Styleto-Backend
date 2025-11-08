@@ -1,0 +1,21 @@
+import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
+import { Document, Types } from 'mongoose';
+
+export type StoreDocument = Store & Document;
+
+@Schema({ timestamps: true })
+export class Store {
+  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
+  userId: Types.ObjectId;
+
+  @Prop({ type: Types.ObjectId, ref: 'Clothes', required: true })
+  clothesId: Types.ObjectId;
+
+  @Prop({ required: true })
+  price: number;
+
+  @Prop({ enum: ['available', 'sold'], default: 'available' })
+  status: string;
+}
+
+export const StoreSchema = SchemaFactory.createForClass(Store);

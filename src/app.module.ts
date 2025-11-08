@@ -1,0 +1,50 @@
+import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
+import { MongooseModule } from '@nestjs/mongoose';
+import { AuthModule } from './auth/auth.module';
+import { RequestLoggerMiddleware } from './common/middleware/request-logger.middleware';
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
+import { UserModule } from './user/user.module';
+import { ClothesModule } from './clothes/clothes.module';
+import { OutfitsModule } from './outfits/outfits.module';
+import { EventsModule } from './events/events.module';
+import { StoreModule } from './store/store.module';
+import { SuitcasesModule } from './suitcases/suitcases.module';
+import { AvatarsModule } from './avatars/avatars.module';
+import { ConfigModule } from '@nestjs/config';
+import Joi from 'joi';
+
+@Module({
+  imports: [
+    MongooseModule.forRoot(
+      process.env.MONGODB_URI ?? 'mongodb://127.0.0.1:27017/labasni',
+    ),
+    
+    UserModule,
+    AuthModule,
+    ClothesModule,
+    OutfitsModule,
+    EventsModule,
+    StoreModule,
+    SuitcasesModule,
+    AvatarsModule,
+    ConfigModule.forRoot({
+      isGlobal: true,
+      envFilePath: '.env',
+      validationSchema: Joi.object({
+        PORT: Joi.number().default(3000),
+        MONGO_URI: Joi.string().required(),
+        JWT_SECRET: Joi.string().required(),
+        JWT_EXPIRES_IN: Joi.string().default('1h'),
+        JWT_REFRESH_EXPIRES_IN: Joi.string().default('7d'),
+      }),
+    }),
+  ],
+  controllers: [AppController],
+  providers: [AppService],
+})
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer.apply(RequestLoggerMiddleware).forRoutes('*');
+  }
+}
