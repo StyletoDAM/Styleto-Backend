@@ -1,27 +1,18 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsEmail, IsOptional, IsString } from 'class-validator';
+import { IsString, IsOptional, IsEmail } from 'class-validator';
 
 export class AppleAuthDto {
-  @ApiProperty({ example: 'apple_user_id_123456789' })
+  @ApiProperty({ example: 'eyJ...' })
   @IsString()
-  readonly appleId: string;
+  readonly identityToken: string;  
 
-  @ApiProperty({ example: 'John Doe' })
+  @ApiProperty({ example: 'Salma Mahjoub', required: false })
   @IsString()
-  readonly fullName: string;
+  @IsOptional()
+  readonly fullName?: string;
 
-  @ApiProperty({ example: 'john.doe@icloud.com' })
+  @ApiProperty({ example: 's.mahjoub@icloud.com', required: false })
   @IsEmail()
-  readonly email: string;
-
-  @ApiProperty({ required: false, example: 'https://example.com/photo.jpg' })
   @IsOptional()
-  @IsString()
-  readonly profilePicture?: string;
-
-  @ApiProperty({ required: false, enum: ['male', 'female'] })
-  @IsOptional()
-  @IsString()
-  readonly gender?: 'male' | 'female';
+  readonly email?: string;
 }
-

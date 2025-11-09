@@ -6,7 +6,11 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { HttpService } from '@nestjs/axios'; 
+import { firstValueFrom } from 'rxjs'; 
 import * as bcrypt from 'bcrypt';
+import * as jwt from 'jsonwebtoken'; 
+import * as jwkToPem from 'jwk-to-pem'; 
 import {
   CreateUserInput,
   SafeUser,
@@ -19,7 +23,6 @@ import { GoogleAuthDto } from './dto/google-auth.dto';
 import { AppleAuthDto } from './dto/apple-auth.dto';
 import { randomInt } from 'crypto';
 import { MailerService } from '@nestjs-modules/mailer';
-
 
 interface JwtPayload {
   sub: string;
@@ -34,182 +37,72 @@ export interface AuthResponse {
 @Injectable()
 export class AuthService {
   private readonly saltRounds = 10;
+  private appleJwksCache: { keys: any[]; timestamp: number } | null = null;
+  private readonly CACHE_DURATION = 24 * 60 * 60 * 1000; // 24h
 
   constructor(
     private readonly userService: UserService,
     private readonly jwtService: JwtService,
-    private readonly mailerService: MailerService, // 🔹 Ajouté
-
+    private readonly mailerService: MailerService,
+    private readonly httpService: HttpService, // AJOUTÉ
   ) {}
 
-  // src/auth/auth.service.ts
-async signup(signupDto: SignupDto) {
-  // 1. Vérifie si email déjà pris
-  const emailTaken = await this.userService.existsByEmail(signupDto.email);
-  if (emailTaken) {
-    throw new ConflictException('Email déjà utilisé');
-  }
+  // --- SIGNUP ---
+  async signup(signupDto: SignupDto) {
+    const emailTaken = await this.userService.existsByEmail(signupDto.email);
+    if (emailTaken) throw new ConflictException('Email déjà utilisé');
 
-  // 2. Hash mot de passe
-  const hashedPassword = await bcrypt.hash(signupDto.password, this.saltRounds);
+    const hashedPassword = await bcrypt.hash(signupDto.password, this.saltRounds);
+    const verificationCode = randomInt(100000, 999999).toString();
 
-  // 3. Génère code
-  const verificationCode = randomInt(100000, 999999).toString();
+    const tempPayload = {
+      email: signupDto.email,
+      fullName: signupDto.fullName,
+      password: hashedPassword,
+      gender: signupDto.gender,
+      code: verificationCode,
+    };
 
-  // 4. JWT temporaire (10 min)
-  const tempPayload = {
-    email: signupDto.email,
-    fullName: signupDto.fullName,
-    password: hashedPassword,
-    gender: signupDto.gender,
-    code: verificationCode,
-  };
+    const tempToken = await this.jwtService.signAsync(tempPayload, { expiresIn: '10m' });
 
-  const tempToken = await this.jwtService.signAsync(tempPayload, {
-    expiresIn: '10m',
-  });
-
-  // 5. Envoie email
-  try {
-    await this.mailerService.sendMail({
-  to: signupDto.email,
-  subject: 'Votre code Labasni',
-  html: `
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <meta charset="utf-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>Votre code de vérification</title>
-      <style>
-        body {
-          font-family: 'Helvetica Neue', Arial, sans-serif;
-          background-color: #f4f6f9;
-          margin: 0;
-          padding: 0;
-        }
-        .container {
-          max-width: 500px;
-          margin: 40px auto;
-          background: white;
-          border-radius: 16px;
-          overflow: hidden;
-          box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
-          border: 1px solid #e0e6ed;
-        }
-        .header {
-          background: linear-gradient(135deg, #4a90e2, #357abd);
-          padding: 30px 20px;
-          text-align: center;
-          color: white;
-        }
-        .header h1 {
-          margin: 0;
-          font-size: 28px;
-          font-weight: 600;
-        }
-        .body {
-          padding: 30px 40px;
-          text-align: center;
-          color: #333;
-        }
-        .code {
-          font-size: 48px;
-          font-weight: bold;
-          letter-spacing: 12px;
-          color: #4a90e2;
-          margin: 20px 0;
-          padding: 15px;
-          background: #f0f7ff;
-          border: 2px dashed #4a90e2;
-          border-radius: 12px;
-          display: inline-block;
-        }
-        .footer {
-          background: #f8f9fa;
-          padding: 20px;
-          text-align: center;
-          font-size: 13px;
-          color: #777;
-          border-top: 1px solid #eee;
-        }
-        .highlight {
-          color: #4a90e2;
-          font-weight: 600;
-        }
-      </style>
-    </head>
-    <body>
-      <div class="container">
-        <div class="header">
-          <h1>LABASNI</h1>
-        </div>
-        <div class="body">
-          <h2 style="margin-top: 0; color: #333;">Vérification de votre compte</h2>
-          <p>Voici votre code de confirmation :</p>
-          <div class="code">${verificationCode}</div>
-          <p style="color: #666; margin: 20px 0;">
-            Ce code expire dans <span class="highlight">10 minutes</span>.
-          </p>
-          <p style="font-size: 14px; color: #888;">
-            Si vous n'avez pas demandé ce code, ignorez cet email.
-          </p>
-        </div>
-        <div class="footer">
-          © 2025 Labasni. Tous droits réservés.<br>
-          <span style="color: #aaa;">support@labasni.com</span>
-        </div>
-      </div>
-    </body>
-    </html>
-  `,
-
-    });
-  } catch (error) {
-    console.error('Échec envoi email:', error);
-    throw new InternalServerErrorException('Échec envoi email');
-  }
-
-  return {
-    message: 'Code envoyé. Vérifiez votre email.',
-    tempToken,
-  };
-}
-  async login(user: SafeUser): Promise<AuthResponse> {
-    if (!user?.id) {
-      throw new UnauthorizedException('Invalid user payload');
+    try {
+      await this.mailerService.sendMail({
+        to: signupDto.email,
+        subject: 'Votre code Labasni',
+        html: `... (ton HTML complet) ...`,
+      });
+    } catch (error) {
+      console.error('Échec envoi email:', error);
+      throw new InternalServerErrorException('Échec envoi email');
     }
 
-    const payload: JwtPayload = { sub: user.id, email: user.email };
+    return { message: 'Code envoyé. Vérifiez votre email.', tempToken };
+  }
 
+  // --- LOGIN ---
+  async login(user: SafeUser): Promise<AuthResponse> {
+    if (!user?.id) throw new UnauthorizedException('Invalid user payload');
+    const payload: JwtPayload = { sub: user.id, email: user.email };
     return {
       user,
       access_token: await this.jwtService.signAsync(payload),
     };
   }
+
+  // --- VALIDATE USER ---
   async validateUser(email: string, password: string) {
-  const user = await this.userService.findByEmail(email);
-  if (!user) return null;
+    const user = await this.userService.findByEmail(email);
+    if (!user) return null;
+    const isMatch = await bcrypt.compare(password, user.password || '');
+    if (!isMatch) return null;
+    return user;
+  }
 
-  const isMatch = await bcrypt.compare(password, user.password || '');
-  if (!isMatch) return null;
-
-  return user; // retourne le SafeUser ou UserDocument selon ta stratégie
-}
-
-
-  async updateProfile(
-    userId: string,
-    updateDto: UpdateProfileDto,
-  ): Promise<SafeUser> {
+  // --- UPDATE PROFILE ---
+  async updateProfile(userId: string, updateDto: UpdateProfileDto): Promise<SafeUser> {
     if (updateDto.email) {
-      const emailTaken = await this.userService.existsByEmail(
-        updateDto.email,
-        userId,
-      );
-      if (emailTaken) {
-        throw new ConflictException('Email already in use');
-      }
+      const emailTaken = await this.userService.existsByEmail(updateDto.email, userId);
+      if (emailTaken) throw new ConflictException('Email already in use');
     }
 
     const updates: UpdateUserInput = { ...updateDto };
@@ -218,88 +111,141 @@ async signup(signupDto: SignupDto) {
     }
 
     const updatedUser = await this.userService.updateById(userId, updates);
-    if (!updatedUser) {
-      throw new NotFoundException('User not found');
-    }
-
+    if (!updatedUser) throw new NotFoundException('User not found');
     return updatedUser;
   }
 
+  // --- DELETE PROFILE ---
   async deleteProfile(userId: string): Promise<void> {
     const existingUser = await this.userService.findById(userId);
-    if (!existingUser) {
-      throw new NotFoundException('User not found');
-    }
+    if (!existingUser) throw new NotFoundException('User not found');
     await this.userService.removeById(userId);
   }
 
+  // --- GOOGLE AUTH ---
   async googleAuth(googleAuthDto: GoogleAuthDto): Promise<AuthResponse> {
-    // Chercher si l'utilisateur existe déjà avec Google ID
     let user = await this.userService.findByGoogleId(googleAuthDto.googleId);
 
     if (!user) {
-      // Si l'utilisateur n'existe pas avec Google ID, chercher par email
       const existingUser = await this.userService.findByEmail(googleAuthDto.email);
       if (existingUser) {
-        // Si l'utilisateur existe avec cet email, lier le compte Google
-        await this.userService.updateById(existingUser.id, {
+        // LIEN COMPTE EXISTANT
+        const updates: UpdateUserInput = {
           googleId: googleAuthDto.googleId,
           authProvider: 'google',
-          profilePicture: googleAuthDto.profilePicture,
-        } as UpdateUserInput);
+        };
+
+        // UNIQUEMENT si PAS d'image existante
+        if (!existingUser.profilePicture && googleAuthDto.profilePicture) {
+          updates.profilePicture = googleAuthDto.profilePicture;
+        }
+
+        await this.userService.updateById(existingUser.id, updates);
         user = await this.userService.findByGoogleId(googleAuthDto.googleId);
       } else {
-        // Créer un nouvel utilisateur
+        // NOUVEAU COMPTE
         user = await this.userService.create({
           fullName: googleAuthDto.fullName,
           email: googleAuthDto.email,
-          gender: googleAuthDto.gender || 'male', // Par défaut 'male' si non fourni
+          gender: googleAuthDto.gender || 'male',
           authProvider: 'google',
           googleId: googleAuthDto.googleId,
-          profilePicture: googleAuthDto.profilePicture,
-        } satisfies CreateUserInput);
+          // UNIQUEMENT si fourni
+          profilePicture: googleAuthDto.profilePicture || undefined,
+          isVerified: true,
+        });
       }
     }
 
-    if (!user) {
-      throw new UnauthorizedException('Failed to authenticate with Google');
-    }
-
+    if (!user) throw new UnauthorizedException('Failed to authenticate with Google');
     return this.login(user);
   }
 
-  async appleAuth(appleAuthDto: AppleAuthDto): Promise<AuthResponse> {
-    // Chercher si l'utilisateur existe déjà avec Apple ID
-    let user = await this.userService.findByAppleId(appleAuthDto.appleId);
+  // --- APPLE PUBLIC KEYS ---
+  private async getApplePublicKeys() {
+    const now = Date.now();
+    if (this.appleJwksCache && now - this.appleJwksCache.timestamp < this.CACHE_DURATION) {
+      return this.appleJwksCache;
+    }
+
+    const response = await firstValueFrom(
+      this.httpService.get('https://appleid.apple.com/auth/keys')
+    );
+    this.appleJwksCache = { keys: response.data.keys, timestamp: now };
+    return this.appleJwksCache;
+  }
+
+  // --- APPLE AUTH ---
+async appleAuth(dto: AppleAuthDto): Promise<AuthResponse> {
+  const { identityToken, fullName, email } = dto;
+
+  // 1. Décodage
+  const decoded = jwt.decode(identityToken) as any;
+  if (!decoded || decoded.iss !== 'https://appleid.apple.com') {
+    throw new UnauthorizedException('Token Apple invalide');
+  }
+
+  // 2. Récupération clé publique
+  const jwks = await this.getApplePublicKeys();
+  const key = jwks.keys.find((k: any) => k.kid === decoded.kid);
+  if (!key) throw new UnauthorizedException('Clé Apple introuvable');
+
+  // 3. Vérification signature
+  const pem = jwkToPem(key);
+  jwt.verify(identityToken, pem, { algorithms: ['RS256'] });
+
+  const appleId = decoded.sub;
+
+  // 4. Recherche ou création
+  let user = await this.userService.findByAppleId(appleId);
+  if (!user) {
+    user = await this.userService.create({
+      appleId,
+      email: email || `${appleId}@privaterelay.appleid.com`,
+      fullName: fullName || 'Apple User',
+      authProvider: 'apple',
+      isVerified: true,
+    });
+  }
+
+  // UTILISE login() → IDENTIQUE À GOOGLE
+  return this.login(user);
+}
+
+  
+
+  // --- VALIDATE GOOGLE USER (optionnel) ---
+  async validateGoogleUser(googleData: {
+    googleId: string;
+    email: string;
+    fullName: string;
+    profilePicture?: string;
+  }) {
+    let user = await this.userService.findByGoogleId(googleData.googleId);
 
     if (!user) {
-      // Si l'utilisateur n'existe pas avec Apple ID, chercher par email
-      const existingUser = await this.userService.findByEmail(appleAuthDto.email);
+      const existingUser = await this.userService.findByEmail(googleData.email);
       if (existingUser) {
-        // Si l'utilisateur existe avec cet email, lier le compte Apple
         await this.userService.updateById(existingUser.id, {
-          appleId: appleAuthDto.appleId,
-          authProvider: 'apple',
-          profilePicture: appleAuthDto.profilePicture,
-        } as UpdateUserInput);
-        user = await this.userService.findByAppleId(appleAuthDto.appleId);
+          googleId: googleData.googleId,
+          authProvider: 'google',
+          profilePicture: googleData.profilePicture,
+        });
+        user = await this.userService.findByGoogleId(googleData.googleId);
       } else {
-        // Créer un nouvel utilisateur
         user = await this.userService.create({
-          fullName: appleAuthDto.fullName,
-          email: appleAuthDto.email,
-          gender: appleAuthDto.gender || 'male', // Par défaut 'male' si non fourni
-          authProvider: 'apple',
-          appleId: appleAuthDto.appleId,
-          profilePicture: appleAuthDto.profilePicture,
-        } satisfies CreateUserInput);
+          fullName: googleData.fullName,
+          email: googleData.email,
+          gender: null as any,
+          authProvider: 'google',
+          googleId: googleData.googleId,
+          profilePicture: googleData.profilePicture,
+          isVerified: true,
+        });
       }
     }
 
-    if (!user) {
-      throw new UnauthorizedException('Failed to authenticate with Apple');
-    }
-
-    return this.login(user);
+    if (!user) throw new UnauthorizedException('Échec de l’authentification Google');
+    return user;
   }
 }

@@ -26,6 +26,9 @@ import Joi from 'joi';
         JWT_SECRET: Joi.string().required(),
         JWT_EXPIRES_IN: Joi.string().default('1h'),
         JWT_REFRESH_EXPIRES_IN: Joi.string().default('7d'),
+        GOOGLE_CLIENT_ID: Joi.string().required(),
+        GOOGLE_CLIENT_SECRET: Joi.string().required(),
+        GOOGLE_CALLBACK_URL: Joi.string().required(),
 
         // EMAIL
         EMAIL_HOST: Joi.string().required(),
@@ -35,7 +38,7 @@ import Joi from 'joi';
         EMAIL_FROM: Joi.string().required(),
 
         // PIN
-        PIN_EXPIRATION_MINUTES: Joi.number().default(10),
+        //PIN_EXPIRATION_MINUTES: Joi.number().default(10),
       }),
       validationOptions: {
         abortEarly: false,

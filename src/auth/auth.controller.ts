@@ -20,7 +20,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { SafeUser, UserService, UpdateUserInput } from '../user/user.service';
-import { AuthService } from './auth.service';
+import { AuthResponse, AuthService } from './auth.service';
 import { SigninDto } from './dto/signin.dto';
 import { SignupDto } from './dto/signup.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
@@ -104,7 +104,7 @@ export class AuthController {
 
   // --- Google Auth ---
   @Post('google')
-  @ApiOperation({ summary: 'Authenticate or register via Google' })
+  @ApiOperation({ summary: 'Authenticate or register via Google (iOS)' })
   @ApiBody({ type: GoogleAuthDto })
   @ApiResponse({ status: 200, description: 'Google authentication successful.' })
   @ApiResponse({ status: 401, description: 'Google authentication failed.' })
@@ -112,57 +112,73 @@ export class AuthController {
     return this.authService.googleAuth(googleAuthDto);
   }
 
+  @Get('google/callback')
+  @ApiOperation({ 
+  summary: 'Google OAuth callback endpoint',
+  description: 'Callback endpoint for Google OAuth 2.0 authentication. Handles the redirect from Google after successful user authentication.'
+  })
+  @UseGuards(AuthGuard('google'))
+  async googleAuthCallback(@Request() req: { user: SafeUser }) {
+    return this.authService.login(req.user);
+  }
+
   // --- Apple Auth ---
   @Post('apple')
-  @ApiOperation({ summary: 'Authenticate or register via Apple' })
+  @ApiOperation({ summary: 'Authenticate via Apple (iOS)' })
   @ApiBody({ type: AppleAuthDto })
   @ApiResponse({ status: 200, description: 'Apple authentication successful.' })
-  @ApiResponse({ status: 401, description: 'Apple authentication failed.' })
   async appleAuth(@Body() appleAuthDto: AppleAuthDto) {
     return this.authService.appleAuth(appleAuthDto);
   }
 
+
+
   // --- Verify Email ---
-  // src/auth/auth.controller.ts
-@Post('verify-email')
-async verifyEmail(@Body() body: VerifyEmailDto) {
-  let payload: any;
+  @Post('verify-email')
+  async verifyEmail(@Body() body: VerifyEmailDto) {
+    let payload: any;
 
-  // 1. Vérifie le JWT temporaire
-  try {
-    payload = await this.jwtService.verifyAsync(body.tempToken);
-  } catch {
-    throw new UnauthorizedException('Token invalide ou expiré');
+    // 1. Vérifie le JWT temporaire
+    try {
+      payload = await this.jwtService.verifyAsync(body.tempToken);
+    } catch {
+      throw new UnauthorizedException('Token invalide ou expiré');
+    }
+
+    // 2. Vérifie le code
+    if (payload.code !== body.code) {
+      throw new UnauthorizedException('Code incorrect');
+    }
+
+    // 3. Vérifie que le compte n'existe pas déjà
+    const existingUser = await this.userService.findByEmail(payload.email);
+    if (existingUser) {
+      throw new ConflictException('Compte déjà créé');
+    }
+
+    // 4. CRÉE LE COMPTE UNIQUEMENT ICI
+    const newUser = await this.userService.create({
+      fullName: payload.fullName,
+      email: payload.email,
+      password: payload.password,
+      gender: payload.gender,
+      isVerified: true, // ← Vérifié !
+    });
+
+    return {
+      message: 'Compte créé avec succès',
+      user: {
+        id: newUser.id,
+        fullName: newUser.fullName,
+        email: newUser.email,
+        gender: newUser.gender,
+      },
+    };
   }
 
-  // 2. Vérifie le code
-  if (payload.code !== body.code) {
-    throw new UnauthorizedException('Code incorrect');
-  }
 
-  // 3. Vérifie que le compte n'existe pas déjà
-  const existingUser = await this.userService.findByEmail(payload.email);
-  if (existingUser) {
-    throw new ConflictException('Compte déjà créé');
-  }
 
-  // 4. CRÉE LE COMPTE UNIQUEMENT ICI
-  const newUser = await this.userService.create({
-    fullName: payload.fullName,
-    email: payload.email,
-    password: payload.password,
-    gender: payload.gender,
-    isVerified: true, // ← Vérifié !
-  });
 
-  return {
-    message: 'Compte créé avec succès',
-    user: {
-      id: newUser.id,
-      fullName: newUser.fullName,
-      email: newUser.email,
-      gender: newUser.gender,
-    },
-  };
-}
+
+
 }

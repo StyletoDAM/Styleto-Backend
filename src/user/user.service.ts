@@ -7,7 +7,7 @@ export interface CreateUserInput {
   fullName: string;
   email: string;
   password?: string;
-  gender: 'male' | 'female';
+  gender?: 'male' | 'female';
   preferences?: string[];
   phoneNumber?: string;
   authProvider?: 'local' | 'google' | 'apple';
@@ -145,12 +145,13 @@ export class UserService {
   }
 
   async findByAppleId(appleId: string): Promise<SafeUser | null> {
-    const user = await this.userModel.findOne({ appleId }).exec();
-    if (!user) {
-      return null;
-    }
-    const safeUser = user.toObject() as SafeUser;
-    safeUser.id = safeUser.id ?? String(user._id);
-    return safeUser;
+  const user = await this.userModel.findOne({ appleId }).exec();
+  if (!user) {
+    return null;
   }
+  const safeUser = user.toObject() as SafeUser;
+  safeUser.id = safeUser.id ?? String(user._id);
+  return safeUser;
+}
+  
 }

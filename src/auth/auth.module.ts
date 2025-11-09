@@ -8,6 +8,9 @@ import { JwtStrategy } from './strategies/jwt.strategy';
 import { LocalStrategy } from './strategies/local.strategy';
 import { JWT_SECRET, JWT_SIGN_OPTIONS } from './auth.constants';
 import { MailerCustomModule } from 'src/mail/mailer.module';
+import { GoogleStrategy } from './strategies/google.strategy'; 
+import { HttpModule } from '@nestjs/axios';
+import { AppleStrategy } from './strategies/apple.strategy';
 
 @Module({
   imports: [
@@ -18,9 +21,10 @@ import { MailerCustomModule } from 'src/mail/mailer.module';
       signOptions: JWT_SIGN_OPTIONS,
     }),
     MailerCustomModule,
+    HttpModule,
   ],
   controllers: [AuthController],
-  providers: [AuthService, LocalStrategy, JwtStrategy],
+  providers: [AuthService, LocalStrategy, JwtStrategy , GoogleStrategy ,AppleStrategy] ,
   exports: [AuthService],
 })
 export class AuthModule {}
