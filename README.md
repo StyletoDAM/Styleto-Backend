@@ -1,134 +1,51 @@
 # Labasni Backend API
 **v1.0.0** – *Core Authentication & Email Verification*
 
-Backend REST API pour l'application mobile **Labasni** – Recommandations de style basées sur l'IA.  
-Développé avec **NestJS**, **MongoDB**, **JWT**, et validation stricte.
+[![Node.js](https://img.shields.io/badge/Node.js-18.x-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
+[![NestJS](https://img.shields.io/badge/NestJS-v11.x-E0234E?logo=nestjs&logoColor=white)](https://nestjs.com/)
+[![MongoDB](https://img.shields.io/badge/MongoDB-v6.x-47A248?logo=mongodb&logoColor=white)](https://www.mongodb.com/)
+[![License](https://img.shields.io/badge/License-MIT-007EC6?logo=opensourceinitiative&logoColor=white)](./LICENSE)
+
+> **Backend REST API** pour l'application mobile **Labasni** – Recommandations de style basées sur l'IA.  
+> Développé avec **NestJS**, **MongoDB**, **JWT**, et validation stricte.
 
 ---
 
-## Fonctionnalités (v1.0.0)
+## 🚀 Fonctionnalités
 
-| Fonctionnalité               | Description |
-|-------------------------------|------------|
-| **Inscription sécurisée**     | Validation complète : nom complet (2 mots), email, mot de passe fort, téléphone |
-| **Vérification email**        | Code PIN envoyé par email (6 chiffres, expiration 10 min) |
-| **Connexion JWT**             | Token sécurisé avec expiration |
-| **Mot de passe fort**         | 6+ caractères, 1 majuscule, 1 caractère spécial |
-| **Hachage bcrypt**            | Sécurité des mots de passe |
+| Fonctionnalité | Description |
+|----------------|-------------|
+| **Inscription sécurisée** | Validation complète : nom complet (2 mots), email, mot de passe fort, téléphone |
+| **Vérification email** | Code PIN envoyé par email (6 chiffres, expiration 10 min) |
+| **Connexion JWT** | Token sécurisé avec expiration |
+| **Mot de passe fort** | 6+ caractères, 1 majuscule, 1 caractère spécial |
+| **Hachage bcrypt** | Sécurité des mots de passe |
 | **Réinitialisation mot de passe** | OTP SMS via Twilio + token temporaire |
-| **Validation backend**        | `class-validator` + messages d’erreur claires |
-| **Gestion images**            | Upload sur Cloudinary pour avatar utilisateur |
+| **Validation backend** | `class-validator` + messages d’erreur claires |
+| **Gestion images** | Upload sur **Cloudinary** pour avatar utilisateur |
 
 ---
 
-## Stack technique
+## 🛠 Stack Technique
 
-```text
-Langage        : TypeScript
-Framework      : NestJS (v11.x)
-Database       : MongoDB (Mongoose)
-Auth           : JWT + Passport
-Email          : @nestjs-modules/mailer (SMTP Gmail)
-SMS/OTP        : Twilio
-Upload fichiers: Cloudinary
-Validation     : class-validator + class-transformer
-Hachage        : bcryptjs
-Testing        : Jest
-Logging        : NestJS Logger
-Packages installés
-NestJS Core
+| Technologie | Version / Rôle |
+|-----------|----------------|
+| **Langage** | TypeScript |
+| **Framework** | NestJS (v11.x) |
+| **Base de données** | MongoDB + Mongoose |
+| **Authentification** | JWT + Passport |
+| **Email** | `@nestjs-modules/mailer` (SMTP Gmail) |
+| **SMS / OTP** | Twilio |
+| **Upload fichiers** | Cloudinary + Multer |
+| **Validation** | `class-validator` + `class-transformer` |
+| **Hachage** | `bcryptjs` |
+| **Testing** | Jest |
+| **Logging** | NestJS Logger |
 
-@nestjs/common, @nestjs/core, @nestjs/mongoose, @nestjs/config
+---
 
-@nestjs/platform-express (gestion multipart/form-data)
+## 📦 Packages Principaux
 
-Sécurité et Auth
-
-@nestjs/jwt, passport, passport-jwt, passport-local
-
-bcryptjs
-
-jsonwebtoken, jwk-to-pem
-
-Validation et DTOs
-
-class-validator, class-transformer
-
-Email & SMS
-
-@nestjs-modules/mailer, nodemailer
-
-twilio
-
-Upload et Stockage
-
-cloudinary, multer, multer-storage-cloudinary
-
-Autres utilitaires
-
-rxjs, crypto, uuid, dotenv
-
-Installation et configuration
-Cloner le dépôt :
-
-bash
-Copier le code
-git clone https://github.com/LabasniDAM/Labasni-Backend.git
-cd Labasni-Backend
-Installer les dépendances :
-
-bash
-Copier le code
-npm install
-Configurer les variables d’environnement .env :
-
-dotenv
-Copier le code
-MONGO_URI=<ton_mongodb_uri>
-JWT_SECRET=<secret_jwt>
-MAIL_USER=<email@gmail.com>
-MAIL_PASS=<motdepasse>
-CLOUDINARY_CLOUD_NAME=<cloud_name>
-CLOUDINARY_API_KEY=<api_key>
-CLOUDINARY_API_SECRET=<api_secret>
-TWILIO_ACCOUNT_SID=<sid>
-TWILIO_AUTH_TOKEN=<auth_token>
-TWILIO_PHONE_NUMBER=<numéro>
-Lancer le serveur en développement :
-
-bash
-Copier le code
-npm run start:dev
-Endpoints principaux
-Méthode	Route	Description
-POST	/auth/signup	Inscription utilisateur
-POST	/auth/verify-email	Vérifier email avec code PIN
-POST	/auth/signin	Connexion avec JWT
-PATCH	/auth/profile	Mettre à jour profil (texte + image)
-DELETE	/auth/profile	Supprimer compte
-POST	/auth/forgot-password	Demande OTP SMS
-POST	/auth/verify-otp	Vérifier OTP
-POST	/auth/reset-password	Réinitialiser mot de passe
-
-Sécurité
-JWT avec expiration configurable
-
-Password hashing via bcryptjs
-
-Validation stricte côté backend
-
-Vérification OTP pour réinitialisation mot de passe
-
-Upload images sécurisées via Cloudinary
-
-Contributions
-Forker le dépôt
-
-Créer une branche : feature/ma-feature
-
-Committer vos changements
-
-Ouvrir un Pull Request
-
-Licence
-MIT License – voir fichier LICENSE.
+### NestJS Core
+```bash
+@nestjs/common @nestjs/core @nestjs/mongoose @nestjs/config @nestjs/platform-express
