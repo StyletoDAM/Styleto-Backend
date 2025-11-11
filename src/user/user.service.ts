@@ -17,6 +17,8 @@ export interface CreateUserInput {
   isVerified?: boolean;
   verificationCode?: string;
   verificationCodeExpiresAt?: Date;
+  resetOtpCode?: string | null;
+  resetOtpExpiresAt?: Date | null;
   
 }
 
@@ -36,6 +38,8 @@ export interface UpdateUserInput {
   isVerified?: boolean;
   verificationCode?: string | null;
   verificationCodeExpiresAt?: Date | null;
+  resetOtpCode?: string | null;
+  resetOtpExpiresAt?: Date | null;
 }
 
 

@@ -8,9 +8,11 @@ import { JwtStrategy } from './strategies/jwt.strategy';
 import { LocalStrategy } from './strategies/local.strategy';
 import { JWT_SECRET, JWT_SIGN_OPTIONS } from './auth.constants';
 import { MailerCustomModule } from 'src/mail/mailer.module';
-import { GoogleStrategy } from './strategies/google.strategy'; 
+import { GoogleStrategy } from './strategies/google.strategy';
 import { HttpModule } from '@nestjs/axios';
 import { AppleStrategy } from './strategies/apple.strategy';
+import { TwilioService } from './twilio.service';
+import { CloudinaryModule } from 'src/cloudinary/cloudinary.module';
 
 @Module({
   imports: [
@@ -22,9 +24,10 @@ import { AppleStrategy } from './strategies/apple.strategy';
     }),
     MailerCustomModule,
     HttpModule,
+    CloudinaryModule,
   ],
   controllers: [AuthController],
-  providers: [AuthService, LocalStrategy, JwtStrategy , GoogleStrategy ,AppleStrategy] ,
+  providers: [AuthService, LocalStrategy, JwtStrategy, GoogleStrategy, AppleStrategy, TwilioService],
   exports: [AuthService],
 })
 export class AuthModule {}

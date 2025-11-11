@@ -1,14 +1,12 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import {
-  IsArray,
-  IsEmail,
-  IsIn,
-  IsOptional,
-  IsString,
-  MinLength,
-} from 'class-validator';
+import { Transform } from 'class-transformer';
+import { IsOptional, IsString, IsArray, IsIn, IsEmail, MinLength } from 'class-validator';
 
 export class UpdateProfileDto {
+  @ApiPropertyOptional({ type: 'string', format: 'binary', description: 'Image de profil' })
+  @IsOptional()
+  readonly image?: any;
+
   @ApiPropertyOptional({ example: 'Jane Doe' })
   @IsOptional()
   @IsString()
@@ -21,7 +19,6 @@ export class UpdateProfileDto {
 
   @ApiPropertyOptional({ enum: ['male', 'female'] })
   @IsOptional()
-  @IsString()
   @IsIn(['male', 'female'])
   readonly gender?: 'male' | 'female';
 
@@ -36,13 +33,18 @@ export class UpdateProfileDto {
     example: ['hiking', 'music'],
   })
   @IsOptional()
-  @IsArray()
   @IsString({ each: true })
+  @Transform(({ value }) => {
+    if (typeof value === 'string') {
+      return value.split(',').map(v => v.trim());
+    }
+    return value;
+  })
   readonly preferences?: string[];
 
+
   @ApiPropertyOptional({
-    description:
-      'Nouvelle valeur du mot de passe (optionnel). Doit contenir au moins 6 caractères.',
+    description: 'Mot de passe (optionnel)',
     minLength: 6,
   })
   @IsOptional()

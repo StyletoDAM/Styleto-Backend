@@ -1,25 +1,14 @@
-import {
-  Body,
-  ConflictException,
-  Controller,
-  Delete,
-  Get,
-  NotFoundException,
-  Patch,
-  Post,
-  Request,
-  UnauthorizedException,
-  UseGuards,
-} from '@nestjs/common';
+import { Body, Controller, Delete, Get, Patch, Post, Request, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import {
   ApiBearerAuth,
   ApiBody,
+  ApiConsumes,
   ApiOperation,
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
-import { SafeUser, UserService, UpdateUserInput } from '../user/user.service';
+import { SafeUser } from '../user/user.service';
 import { AuthResponse, AuthService } from './auth.service';
 import { SigninDto } from './dto/signin.dto';
 import { SignupDto } from './dto/signup.dto';
@@ -28,16 +17,15 @@ import { GoogleAuthDto } from './dto/google-auth.dto';
 import { AppleAuthDto } from './dto/apple-auth.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { VerifyEmailDto } from './dto/verify-email.dto';
-import { JwtService } from '@nestjs/jwt';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
+import { VerifyOtpDto } from './dto/verify-otp.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
+import { FileInterceptor } from '@nestjs/platform-express';
 
 @ApiTags('Auth')
 @Controller('auth')
 export class AuthController {
-  constructor(
-    private readonly authService: AuthService,
-    private readonly userService: UserService, 
-    private readonly jwtService: JwtService, 
-  ) {}
+  constructor(private readonly authService: AuthService) {}
 
   // --- Signup ---
   @Post('signup')
@@ -75,20 +63,23 @@ export class AuthController {
   }
 
   // --- Update Profile ---
-  @UseGuards(JwtAuthGuard)
-  @Patch('profile')
-  @ApiOperation({ summary: 'Update authenticated user profile' })
-  @ApiBearerAuth()
-  @ApiBody({ type: UpdateProfileDto })
-  @ApiResponse({ status: 200, description: 'Profile updated successfully.' })
-  @ApiResponse({ status: 401, description: 'Missing or invalid authentication token.' })
-  @ApiResponse({ status: 409, description: 'Email already in use.' })
-  async updateProfile(
-    @Request() req: { user: SafeUser },
-    @Body() updateProfileDto: UpdateProfileDto,
-  ) {
-    return this.authService.updateProfile(req.user.id, updateProfileDto);
-  }
+@UseGuards(JwtAuthGuard)
+@Patch('profile')
+@UseInterceptors(FileInterceptor('image'))
+@ApiConsumes('multipart/form-data')
+@ApiBearerAuth()
+async updateProfile(
+  @Request() req,
+  @UploadedFile() image?: Express.Multer.File,
+) {
+  // Récupère TOUTES les données brutes du form-data
+  const body = req.body;
+
+  console.log('Body brut:', body);
+  console.log('Image:', image ? image.originalname : 'None');
+
+  return this.authService.updateProfile(req.user.id, body, image);
+}
 
   // --- Delete Profile ---
   @UseGuards(JwtAuthGuard)
@@ -136,49 +127,30 @@ export class AuthController {
   // --- Verify Email ---
   @Post('verify-email')
   async verifyEmail(@Body() body: VerifyEmailDto) {
-    let payload: any;
-
-    // 1. Vérifie le JWT temporaire
-    try {
-      payload = await this.jwtService.verifyAsync(body.tempToken);
-    } catch {
-      throw new UnauthorizedException('Token invalide ou expiré');
-    }
-
-    // 2. Vérifie le code
-    if (payload.code !== body.code) {
-      throw new UnauthorizedException('Code incorrect');
-    }
-
-    // 3. Vérifie que le compte n'existe pas déjà
-    const existingUser = await this.userService.findByEmail(payload.email);
-    if (existingUser) {
-      throw new ConflictException('Compte déjà créé');
-    }
-
-    // 4. CRÉE LE COMPTE UNIQUEMENT ICI
-    const newUser = await this.userService.create({
-      fullName: payload.fullName,
-      email: payload.email,
-      password: payload.password,
-      gender: payload.gender,
-      isVerified: true, // ← Vérifié !
-    });
-
-    return {
-      message: 'Compte créé avec succès',
-      user: {
-        id: newUser.id,
-        fullName: newUser.fullName,
-        email: newUser.email,
-        gender: newUser.gender,
-      },
-    };
+    return this.authService.verifyEmail(body);
   }
 
+  @Post('forgot-password')
+  @ApiOperation({ summary: 'Demander un OTP SMS pour réinitialiser le mot de passe' })
+  @ApiBody({ type: ForgotPasswordDto })
+  @ApiResponse({ status: 201, description: 'Code OTP envoyé sur le numéro associé.' })
+  async forgotPassword(@Body() body: ForgotPasswordDto) {
+    return this.authService.forgotPassword(body);
+  }
 
+  @Post('verify-otp')
+  @ApiOperation({ summary: 'Valider le code OTP envoyé par SMS' })
+  @ApiBody({ type: VerifyOtpDto })
+  @ApiResponse({ status: 201, description: 'OTP validé, renvoie un jeton temporaire.' })
+  async verifyOtp(@Body() body: VerifyOtpDto) {
+    return this.authService.verifyOtp(body);
+  }
 
-
-
-
+  @Post('reset-password')
+  @ApiOperation({ summary: 'Réinitialiser le mot de passe via le jeton temporaire' })
+  @ApiBody({ type: ResetPasswordDto })
+  @ApiResponse({ status: 200, description: 'Mot de passe réinitialisé avec succès.' })
+  async resetPassword(@Body() body: ResetPasswordDto) {
+    return this.authService.resetPassword(body);
+  }
 }

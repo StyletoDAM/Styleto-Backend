@@ -1,12 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import {
-  IsArray,
-  IsEmail,
-  IsIn,
-  IsOptional,
-  IsString,
-  MinLength,
-} from 'class-validator';
+import { IsArray, IsEmail, IsIn, IsOptional, IsString, Matches, MinLength } from 'class-validator';
 import { IsFullName } from 'src/common/middleware/validators/is-full-name.validator';
 import { IsStrongPassword } from 'src/common/middleware/validators/is-strong-password.validator';
 export class SignupDto {
@@ -32,10 +25,12 @@ export class SignupDto {
   @IsIn(['male', 'female'])
   readonly gender: 'male' | 'female';
 
-  @ApiProperty({ required: false, example: '+21612345678' })
-  @IsOptional()
+  @ApiProperty({ example: '+21652904114', description: 'Numéro de téléphone format international' })
   @IsString()
-  readonly phoneNumber?: string;
+  @Matches(/^\+?\d{6,15}$/, {
+    message: 'Le numéro de téléphone doit contenir entre 6 et 15 chiffres et peut commencer par +',
+  })
+  readonly phoneNumber: string;
 
   @ApiProperty({
     required: false,

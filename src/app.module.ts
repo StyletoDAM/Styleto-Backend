@@ -22,7 +22,8 @@ import Joi from 'joi';
       envFilePath: '.env',
       validationSchema: Joi.object({
         PORT: Joi.number().default(3000),
-        MONGO_URI: Joi.string().required(),
+        MONGODB_URI: Joi.string(),
+        MONGO_URI: Joi.string(),
         JWT_SECRET: Joi.string().required(),
         JWT_EXPIRES_IN: Joi.string().default('1h'),
         JWT_REFRESH_EXPIRES_IN: Joi.string().default('7d'),
@@ -37,16 +38,24 @@ import Joi from 'joi';
         EMAIL_PASS: Joi.string().required(),
         EMAIL_FROM: Joi.string().required(),
 
+        // TWILIO
+        TWILIO_ACCOUNT_SID: Joi.string().required(),
+        TWILIO_AUTH_TOKEN: Joi.string().required(),
+        TWILIO_PHONE_NUMBER: Joi.string().required(),
+
         // PIN
         //PIN_EXPIRATION_MINUTES: Joi.number().default(10),
       }),
       validationOptions: {
         abortEarly: false,
       },
+      
     }),
 
     MongooseModule.forRoot(
-      process.env.MONGO_URI ?? 'mongodb://127.0.0.1:27017/labasni',
+      process.env.MONGODB_URI ??
+        process.env.MONGO_URI ??
+        'mongodb://127.0.0.1:27017/labasni',
     ),
 
     UserModule,

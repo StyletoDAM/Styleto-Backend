@@ -47,12 +47,20 @@ verificationCode?: string;
 @Prop({ required: false })
 verificationCodeExpiresAt?: Date;
 
+  @Prop({ type: String, required: false, default: null })
+  resetOtpCode?: string | null;
+
+  @Prop({ type: Date, required: false, default: null })
+  resetOtpExpiresAt?: Date | null;
+
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);
 
 const removeSensitiveFields = (_: unknown, ret: any) => {
   delete ret.password;
+  delete ret.resetOtpCode;
+  delete ret.resetOtpExpiresAt;
   if (ret._id) {
     ret.id = ret._id;
     delete ret._id;
