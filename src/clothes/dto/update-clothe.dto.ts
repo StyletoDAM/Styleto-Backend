@@ -20,7 +20,7 @@ export class UpdateClotheDto extends PartialType(CreateClotheDto) {
     example: ['tshirt', 'summer', 'casual'],
     type: [String],
   })
-  category?: string[];
+  category?: string;
 
   @ApiPropertyOptional({
     description: 'Updated color of the clothing item (optional).',

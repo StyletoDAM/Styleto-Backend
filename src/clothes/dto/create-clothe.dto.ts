@@ -1,4 +1,4 @@
-import { IsArray, IsMongoId, IsOptional, IsString, IsUrl } from 'class-validator';
+import { IsMongoId, IsOptional, IsString, IsUrl } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class CreateClotheDto {
@@ -17,13 +17,20 @@ export class CreateClotheDto {
   imageURL: string;
 
   @ApiProperty({
-    description: 'List of categories describing the clothing item.',
-    example: ['tshirt', 'casual'],
-    type: [String],
+    description: 'Category describing the clothing item.',
+    example: 'tshirt',
   })
-  @IsArray()
-  @IsString({ each: true })
-  category: string[];
+  @IsString()
+  category: string;
+
+  @ApiProperty({
+    description: 'Season of the clothing item (optional).',
+    example: 'été',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  season?: string;
 
   @ApiProperty({
     description: 'Color of the clothing item (optional).',
@@ -43,4 +50,3 @@ export class CreateClotheDto {
   @IsString()
   style?: string;
 }
-

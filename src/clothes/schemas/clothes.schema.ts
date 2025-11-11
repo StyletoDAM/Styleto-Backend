@@ -11,13 +11,19 @@ export class Clothes {
   @Prop({ required: true })
   imageURL: string;
 
-  // Tableau de catégories (haut, bas, saison, etc.)
-  @Prop({ type: [String], default: [] })
+  // Tableau de catégories (haut, bas, pantalon, chaussures, etc.)
+  @Prop({ type: [String], required: true })
   category: string[];
 
+  // Saison
+  @Prop()
+  season: string;
+
+  // Couleur
   @Prop()
   color: string;
 
+  // Style
   @Prop()
   style: string;
 
