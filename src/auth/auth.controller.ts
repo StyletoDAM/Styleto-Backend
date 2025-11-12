@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Patch, Post, Request, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Patch, Post, Request, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import {
   ApiBearerAuth,
@@ -63,24 +63,48 @@ export class AuthController {
   }
 
   // --- Update Profile ---
+  // --- UPDATE PROFILE (texte) ---
 @UseGuards(JwtAuthGuard)
 @Patch('profile')
+@ApiConsumes('application/json')
+@ApiBearerAuth()
+@ApiOperation({ summary: 'Mettre à jour les informations textuelles du profil' })
+async updateProfileText(
+  @Request() req,
+  @Body() updateDto: UpdateProfileDto,
+) {
+  return this.authService.updateProfileText(req.user.id, updateDto);
+}
+
+// --- UPDATE PROFILE PHOTO (image seulement) ---
+@UseGuards(JwtAuthGuard)
+@Patch('profile/photo')
 @UseInterceptors(FileInterceptor('image'))
 @ApiConsumes('multipart/form-data')
 @ApiBearerAuth()
-async updateProfile(
+@ApiOperation({ summary: 'Mettre à jour uniquement la photo de profil' })
+@ApiBody({
+  description: 'Image de profil',
+  type: 'multipart/form-data',
+  schema: {
+    type: 'object',
+    properties: {
+      image: {
+        type: 'string',
+        format: 'binary',
+      },
+    },
+  },
+})
+async updateProfilePhoto(
   @Request() req,
-  @UploadedFile() image?: Express.Multer.File,
+  @UploadedFile() image: Express.Multer.File,
 ) {
-  // Récupère TOUTES les données brutes du form-data
-  const body = req.body;
-
-  console.log('Body brut:', body);
-  console.log('Image:', image ? image.originalname : 'None');
-
-  return this.authService.updateProfile(req.user.id, body, image);
+  if (!image) {
+    throw new BadRequestException('Aucune image fournie');
+  }
+  return this.authService.updateProfilePhoto(req.user.id, image);
 }
-
   // --- Delete Profile ---
   @UseGuards(JwtAuthGuard)
   @Delete('profile')

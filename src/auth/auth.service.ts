@@ -405,80 +405,42 @@ export class AuthService {
   }
 
   // --- UPDATE PROFILE ---
-    // --- UPDATE PROFILE ---
-  async updateProfile(
-    userId: string,
-    updateDto: any = {}, // Valeur par défaut
-    image?: Express.Multer.File,
-  ): Promise<SafeUser> {
-    console.log('DTO reçu (brut):', updateDto);
+  // --- MISE À JOUR TEXTE SEULEMENT ---
+async updateProfileText(userId: string, updateDto: UpdateProfileDto): Promise<SafeUser> {
+  const updates: any = {};
 
-    const updates: any = {};
+  if (updateDto.fullName !== undefined) updates.fullName = updateDto.fullName?.trim();
+  if (updateDto.phoneNumber !== undefined) updates.phoneNumber = updateDto.phoneNumber?.trim();
+  if (updateDto.gender !== undefined) updates.gender = updateDto.gender;
+  if (updateDto.password) updates.password = await bcrypt.hash(updateDto.password, 10);
 
-    // --- Texte ---
-    if (updateDto.fullName !== undefined) {
-      updates.fullName = updateDto.fullName?.trim();
-    }
-    if (updateDto.phoneNumber !== undefined) {
-      updates.phoneNumber = updateDto.phoneNumber?.trim();
-    }
-    if (updateDto.gender !== undefined) {
-      updates.gender = updateDto.gender;
-    }
-
-    // --- Email ---
-    if (updateDto.email !== undefined) {
-      const email = updateDto.email?.trim();
-      if (email) {
-        const emailTaken = await this.userService.existsByEmail(email, userId);
-        if (emailTaken) throw new ConflictException('Email déjà utilisé');
-        updates.email = email;
-      }
-    }
-
-    // --- Préférences ---
-    if (updateDto.preferences !== undefined) {
-      let prefs: string[] = [];
-      if (Array.isArray(updateDto.preferences)) {
-        prefs = updateDto.preferences.filter(p => typeof p === 'string').map(p => p.trim());
-      } else if (typeof updateDto.preferences === 'string') {
-        prefs = updateDto.preferences.split(',').map(s => s.trim()).filter(s => s);
-      }
-      updates.preferences = prefs;
-    }
-
-    // --- Mot de passe ---
-    if (updateDto.password !== undefined && updateDto.password) {
-      updates.password = await bcrypt.hash(updateDto.password, 10);
-    }
-
-    // --- Image ---
-    if (image) {
-      try {
-        console.log('Upload image...');
-        const result = await this.cloudinaryService.uploadImage(image);
-        updates.profilePicture = result.secure_url;
-        console.log('Image uploadée:', result.secure_url);
-      } catch (error) {
-        console.error('Échec upload:', error);
-        throw new InternalServerErrorException('Échec upload image');
-      }
-    }
-
-    console.log('Mises à jour finales:', updates);
-
-    // Si aucun changement, on renvoie l'utilisateur tel quel
-    if (Object.keys(updates).length === 0) {
-      const user = await this.userService.findById(userId);
-      if (!user) throw new NotFoundException('User not found');
-      return user;
-    }
-
-    const updatedUser = await this.userService.updateById(userId, updates);
-    if (!updatedUser) throw new NotFoundException('User not found');
-
-    return updatedUser;
+  if (Object.keys(updates).length === 0) {
+    const user = await this.userService.findById(userId);
+    if (!user) throw new NotFoundException('User not found');
+    return user;
   }
+
+  const updatedUser = await this.userService.updateById(userId, updates);
+  if (!updatedUser) throw new NotFoundException('User not found');
+  return updatedUser;
+}
+
+// --- MISE À JOUR PHOTO SEULEMENT ---
+async updateProfilePhoto(userId: string, image: Express.Multer.File): Promise<SafeUser> {
+  let profilePicture: string | undefined;
+
+  try {
+    const result = await this.cloudinaryService.uploadImage(image);
+    profilePicture = result.secure_url;
+  } catch (error) {
+    console.error('Échec upload:', error);
+    throw new InternalServerErrorException('Échec upload image');
+  }
+
+  const updatedUser = await this.userService.updateById(userId, { profilePicture });
+  if (!updatedUser) throw new NotFoundException('User not found');
+  return updatedUser;
+}
 
   // --- DELETE PROFILE ---
   async deleteProfile(userId: string): Promise<void> {
