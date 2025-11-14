@@ -93,55 +93,61 @@ export class StoreService {
 
   // UPDATE
   async update(id: string, dto: UpdateStoreDto, userId: string): Promise<Store> {
-    if (!this.isValidId(id)) {
-      throw new BadRequestException('Invalid store item ID');
-    }
-
-    const item = await this.storeModel.findById(id).exec();
-    if (!item) {
-      throw new NotFoundException(`Store item with ID ${id} not found`);
-    }
-
-    if (item.userId.toString() !== userId) {
-      throw new ForbiddenException('Vous ne pouvez pas modifier cet article');
-    }
-
-    if (dto.clothesId) {
-      await this.verifyClothesOwnership(dto.clothesId, userId);
-    }
-
-    const updated = await this.storeModel
-      .findOneAndUpdate(
-        { _id: id, userId: new Types.ObjectId(userId) },
-        dto,
-        { new: true },
-      )
-      .populate('userId', '-password -__v')
-      .populate('clothesId')
-      .exec();
-
-    if (!updated) {
-      throw new NotFoundException(`Store item with ID ${id} not found`);
-    }
-
-    return updated;
+  if (!this.isValidId(id)) {
+    throw new BadRequestException('Invalid store item ID');
   }
+
+  const item = await this.storeModel.findById(id).exec();
+  if (!item) {
+    throw new NotFoundException(`Store item with ID ${id} not found`);
+  }
+
+  // AJOUTEZ UN LOG POUR DEBUGGER
+  console.log('item.userId:', item.userId.toString());
+  console.log('userId:', userId);
+  console.log('Comparison:', item.userId.toString() === userId);
+
+  // Forcer la conversion en string des deux côtés
+  if (item.userId.toString() !== userId.toString()) {
+    throw new ForbiddenException('Vous ne pouvez pas modifier cet article');
+  }
+
+  if (dto.clothesId) {
+    await this.verifyClothesOwnership(dto.clothesId, userId);
+  }
+
+  const updated = await this.storeModel
+    .findOneAndUpdate(
+      { _id: new Types.ObjectId(id), userId: new Types.ObjectId(userId) },
+      dto,
+      { new: true },
+    )
+    .populate('userId', '-password -__v')
+    .populate('clothesId')
+    .exec();
+
+  if (!updated) {
+    throw new NotFoundException(`Store item with ID ${id} not found`);
+  }
+
+  return updated;
+}
 
   // DELETE
   async remove(id: string, userId: string): Promise<void> {
-    if (!this.isValidId(id)) {
-      throw new BadRequestException('Invalid store item ID');
-    }
-
-    const item = await this.storeModel.findById(id).exec();
-    if (!item) {
-      throw new NotFoundException(`Store item with ID ${id} not found`);
-    }
-
-    if (item.userId.toString() !== userId) {
-      throw new ForbiddenException('Vous ne pouvez pas supprimer cet article');
-    }
-
-    await this.storeModel.findByIdAndDelete(id).exec();
+  if (!this.isValidId(id)) {
+    throw new BadRequestException('Invalid store item ID');
   }
+
+  const result = await this.storeModel.findOneAndDelete({
+    _id: new Types.ObjectId(id),
+    userId: new Types.ObjectId(userId)
+  }).exec();
+
+  if (!result) {
+    throw new NotFoundException(
+      `Store item with ID ${id} not found or you don't have permission to delete it`
+    );
+  }
+}
 }
