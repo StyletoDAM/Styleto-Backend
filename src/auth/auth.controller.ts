@@ -166,18 +166,28 @@ async updateProfilePhoto(
   }
 
   @Post('verify-otp')
-  @ApiOperation({ summary: 'Valider le code OTP envoyé par SMS' })
+  @ApiOperation({ summary: 'Validate OPT code sent by sms' })
   @ApiBody({ type: VerifyOtpDto })
-  @ApiResponse({ status: 201, description: 'OTP validé, renvoie un jeton temporaire.' })
+  @ApiResponse({ status: 201, description: 'OTP validated, return Token.' })
   async verifyOtp(@Body() body: VerifyOtpDto) {
     return this.authService.verifyOtp(body);
   }
 
   @Post('reset-password')
-  @ApiOperation({ summary: 'Réinitialiser le mot de passe via le jeton temporaire' })
+  @ApiOperation({ summary: 'Reset password via Token' })
   @ApiBody({ type: ResetPasswordDto })
-  @ApiResponse({ status: 200, description: 'Mot de passe réinitialisé avec succès.' })
+  @ApiResponse({ status: 200, description: 'Password Reset Successfully.' })
   async resetPassword(@Body() body: ResetPasswordDto) {
     return this.authService.resetPassword(body);
+  }
+  // --- DELETE PROFILE PHOTO ---
+  @UseGuards(JwtAuthGuard)
+  @Delete('profile/photo/remove')  
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Delete profile photo' })
+  @ApiResponse({ status: 200, description: 'Profile photo deleted successfuly.' })
+  @ApiResponse({ status: 404, description: 'User not found.' })
+  async deleteProfilePhoto(@Request() req) {
+    return this.authService.deleteProfilePhoto(req.user.id);
   }
 }

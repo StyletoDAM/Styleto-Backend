@@ -593,7 +593,32 @@ async appleAuth(dto: AppleAuthDto): Promise<AuthResponse> {
   }
 
   // --- DELETE PROFILE PHOTO ---
+  async deleteProfilePhoto(userId: string): Promise<SafeUser> {
+  const user = await this.userService.findById(userId);
+  if (!user) throw new NotFoundException('Utilisateur introuvable');
   
+  if (!user.profilePicture) {
+    return user;
+  }
+
+  // Extraire le publicId
+  const urlParts = user.profilePicture.split('/');
+  const fileWithExt = urlParts[urlParts.length - 1];
+  const publicId = `labasni_profiles/${fileWithExt.split('.')[0]}`;
+
+  try {
+    await this.cloudinaryService.deleteImage(publicId);
+  } catch (error) {
+    console.error('Échec suppression Cloudinary:', error);
+  }
+
+  const updatedUser = await this.userService.updateById(userId, {
+    profilePicture: undefined
+  });
+
+  if (!updatedUser) throw new NotFoundException('Échec mise à jour');
+  return updatedUser;
+}
 
 
   

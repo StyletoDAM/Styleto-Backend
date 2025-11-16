@@ -105,30 +105,56 @@ export class UserService {
   }
 
   async updateById(
-    id: string | Types.ObjectId,
-    updates: UpdateUserInput,
-  ): Promise<SafeUser | null> {
-    const normalizedUpdates: UpdateUserInput = { ...updates };
-    if (normalizedUpdates.email) {
-      normalizedUpdates.email = normalizedUpdates.email.toLowerCase();
-    }
-
-    const user = await this.userModel
-      .findOneAndUpdate(
-        { _id: typeof id === 'string' ? new Types.ObjectId(id) : id },
-        { $set: normalizedUpdates },
-        { new: true, runValidators: true },
-      )
-      .exec();
-
-    if (!user) {
-      return null;
-    }
-
-    const safeUser = user.toObject() as SafeUser;
-    safeUser.id = safeUser.id ?? String(user._id);
-    return safeUser;
+  id: string | Types.ObjectId,
+  updates: UpdateUserInput,
+): Promise<SafeUser | null> {
+  const normalizedUpdates: UpdateUserInput = { ...updates };
+  if (normalizedUpdates.email) {
+    normalizedUpdates.email = normalizedUpdates.email.toLowerCase();
   }
+
+  // Séparer les champs à mettre à jour et ceux à supprimer
+  const setFields: any = {};
+  const unsetFields: any = {};
+
+  Object.entries(normalizedUpdates).forEach(([key, value]) => {
+    if (value === undefined) {
+      unsetFields[key] = '';
+    } else {
+      setFields[key] = value;
+    }
+  });
+
+  // Construire l'opération de mise à jour
+  const updateOperation: any = {};
+  if (Object.keys(setFields).length > 0) {
+    updateOperation.$set = setFields;
+  }
+  if (Object.keys(unsetFields).length > 0) {
+    updateOperation.$unset = unsetFields;
+  }
+
+  // Si aucune opération, retourner l'utilisateur existant
+  if (Object.keys(updateOperation).length === 0) {
+    return this.findById(id);
+  }
+
+  const user = await this.userModel
+    .findOneAndUpdate(
+      { _id: typeof id === 'string' ? new Types.ObjectId(id) : id },
+      updateOperation,
+      { new: true, runValidators: true },
+    )
+    .exec();
+
+  if (!user) {
+    return null;
+  }
+
+  const safeUser = user.toObject() as SafeUser;
+  safeUser.id = safeUser.id ?? String(user._id);
+  return safeUser;
+}
 
   async removeById(id: string | Types.ObjectId): Promise<void> {
     await this.userModel
