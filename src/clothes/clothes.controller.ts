@@ -141,26 +141,28 @@ export class ClothController {
     }
   }
 
-  // ------------------ DELETE ------------------
+  // ------------------ DELETE (SÉCURISÉ) ------------------
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: 'Delete a clothing item by ID' })
-  @ApiParam({
-    name: 'id',
-    description: 'Unique identifier of the clothing item',
-    type: String,
-  })
-  @ApiResponse({
-    status: 204,
-    description: 'Clothing item deleted successfully (no content returned).',
-  })
-  @ApiNotFoundResponse({
-    description: 'No clothing item found with the provided ID.',
-  })
-  async remove(@Param('id') id: string) {
-    const deleted = await this.clothService.remove(id);
-    if (!deleted) throw new NotFoundException(`No clothing item found with ID ${id}`);
-    return;
+  @ApiOperation({ summary: 'Supprimer un de MES vêtements (seulement si je suis le propriétaire)' })
+  @ApiParam({ name: 'id', description: 'ID du vêtement à supprimer' })
+  @ApiResponse({ status: 204, description: 'Vêtement supprimé avec succès' })
+  @ApiNotFoundResponse({ description: 'Vêtement non trouvé' })
+  @ApiBearerAuth()
+  async removeMyClothe(
+    @Param('id') id: string,
+    @GetUser() user: any, // ← Utilisateur connecté via JWT
+  ) {
+    if (!user?.id) {
+      throw new UnauthorizedException('Utilisateur non authentifié');
+    }
+
+    const success = await this.clothService.removeMyClothe(id, user.id);
+    if (!success) {
+      throw new NotFoundException(`Vêtement non trouvé ou vous n'êtes pas autorisé à le supprimer`);
+    }
+
+    return; // 204 No Content
   }
   
 }

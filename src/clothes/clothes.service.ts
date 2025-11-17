@@ -117,4 +117,17 @@ export class ClothesService {
     .populate('userId', '-password -__v')
     .exec();
 }
+// Supprimer uniquement si le vêtement appartient à l'utilisateur
+async removeMyClothe(clotheId: string, userId: string): Promise<boolean> {
+  if (!Types.ObjectId.isValid(clotheId) || !Types.ObjectId.isValid(userId)) {
+    throw new ForbiddenException('Format d\'ID invalide');
+  }
+
+  const result = await this.clothesModel.deleteOne({
+    _id: new Types.ObjectId(clotheId),
+    userId: new Types.ObjectId(userId), // ← LA CLÉ DE SÉCURITÉ
+  }).exec();
+
+  return result.deletedCount > 0;
+}
 }
