@@ -5,6 +5,7 @@ import { Clothes, ClothesSchema } from './schemas/clothes.schema';
 import { MongooseModule } from '@nestjs/mongoose';
 import { UserModule } from 'src/user/user.module';
 import { User, UserSchema } from 'src/user/schemas/user.schema';
+import { DetectController } from './detect.controller';
 
 @Module({
   imports: [
@@ -14,7 +15,7 @@ import { User, UserSchema } from 'src/user/schemas/user.schema';
     ]),
     UserModule,
   ],
-  controllers: [ClothController],
+  controllers: [ClothController,DetectController],
   providers: [ClothesService],
   exports: [
     MongooseModule, 
