@@ -1,5 +1,5 @@
 // src/app.module.ts
-import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
+import { MiddlewareConsumer, Module, NestModule, OnModuleInit } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { AuthModule } from './auth/auth.module';
 import { RequestLoggerMiddleware } from './common/middleware/request-logger.middleware';
@@ -16,6 +16,10 @@ import { CloudinaryModule } from './cloudinary/cloudinary.module';
 import { ConfigModule } from '@nestjs/config';
 import { ChatModule } from './chat/chat.module';
 import Joi from 'joi';
+// ✨ NOUVEAUX IMPORTS
+import { ScheduleModule } from '@nestjs/schedule';
+import * as cron from 'node-cron';
+import { ClothesService } from './clothes/clothes.service';
 
 @Module({
   imports: [
@@ -49,14 +53,10 @@ import Joi from 'joi';
         CLOUDINARY_CLOUD_NAME: Joi.string().required(),
         CLOUDINARY_API_KEY: Joi.string().required(),
         CLOUDINARY_API_SECRET: Joi.string().required(),
-
-        // PIN
-        //PIN_EXPIRATION_MINUTES: Joi.number().default(10),
       }),
       validationOptions: {
         abortEarly: false,
       },
-      
     }),
 
     MongooseModule.forRoot(
@@ -64,6 +64,9 @@ import Joi from 'joi';
         process.env.MONGO_URI ??
         'mongodb://127.0.0.1:27017/labasni',
     ),
+
+    // ✨ NOUVEAU : Active le système de scheduling
+    ScheduleModule.forRoot(),
 
     UserModule,
     AuthModule,
@@ -79,8 +82,49 @@ import Joi from 'joi';
   controllers: [AppController],
   providers: [AppService],
 })
-export class AppModule implements NestModule {
+export class AppModule implements NestModule, OnModuleInit {
+  constructor(private clothesService: ClothesService) {}
+
   configure(consumer: MiddlewareConsumer) {
     consumer.apply(RequestLoggerMiddleware).forRoutes('*');
+  }
+
+  // ✨ NOUVEAU : Cron job pour vérifier si fine-tuning nécessaire
+  onModuleInit() {
+    // Chaque dimanche à minuit (00:00)
+    cron.schedule('0 0 * * 0', async () => {
+      try {
+        const stats = await this.clothesService.getGlobalCorrectionStats();
+
+        console.log('═══════════════════════════════════════');
+        console.log('🔍 VÉRIFICATION HEBDOMADAIRE FINE-TUNING');
+        console.log('═══════════════════════════════════════');
+        console.log(`📊 Total corrections: ${stats.totalCorrections}`);
+        console.log(`👥 Utilisateurs contributeurs: ${stats.uniqueUsers}`);
+        console.log(`🎯 Objectif: 50 corrections`);
+        console.log(`📈 Progression: ${stats.progress.percentage.toFixed(1)}%`);
+
+        if (stats.readyForFineTuning) {
+          console.log('\n✅ PRÊT POUR LE FINE-TUNING !');
+          console.log('🔥 Action recommandée : Lancer le fine-tuning sur Colab');
+          console.log(`📁 Endpoint d'export: GET /cloth/corrections`);
+
+          // Si tu veux des paliers (tous les 50, 100, 150...)
+          if (stats.totalCorrections % 50 === 0) {
+            console.log(`\n🎉 PALIER ATTEINT : ${stats.totalCorrections} corrections`);
+            console.log('💡 Suggestion : Re-fine-tune pour améliorer le modèle');
+          }
+        } else {
+          const remaining = 50 - stats.totalCorrections;
+          console.log(`\n⏳ Pas encore prêt. Il manque ${remaining} corrections.`);
+        }
+
+        console.log('═══════════════════════════════════════\n');
+      } catch (error) {
+        console.error('❌ Erreur lors de la vérification:', error);
+      }
+    });
+
+    console.log('✅ Cron job activé : Vérification fine-tuning chaque dimanche à minuit');
   }
 }

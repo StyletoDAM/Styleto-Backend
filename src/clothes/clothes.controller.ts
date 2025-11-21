@@ -37,31 +37,27 @@ import { GetUser } from 'src/common/decorators/get-user.decorator';
 export class ClothController {
   constructor(private readonly clothService: ClothesService) {}
 
-  // MODIF : Ajoute isCorrected si originalDetection présent
+  // CREATE avec gestion corrections
   @Post()
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Create a new clothing item (user from JWT)' })
   @ApiBody({ type: CreateClotheDto })
   @ApiBearerAuth()
-  async create(
-    @Body() createClothDto: CreateClotheDto,
-    @GetUser() user: any,
-  ) {
+  async create(@Body() createClothDto: CreateClotheDto, @GetUser() user: any) {
     if (!user?.id) {
       throw new UnauthorizedException('Utilisateur non authentifié');
     }
 
-    // Ajoute userId automatiquement
     const clothesWithUser = {
       ...createClothDto,
-      userId: user.id, // ← AUTOMATIQUE
-      isCorrected: !!createClothDto.originalDetection,  // AJOUT : true si correction
+      userId: user.id,
+      isCorrected: !!createClothDto.originalDetection,
     };
 
     return await this.clothService.create(clothesWithUser);
   }
 
-  // AJOUT : Endpoint pour exporter corrections (admin only, ajoute auth si besoin)
+  // ✨ NOUVEAU : Exporter corrections pour fine-tuning
   @Get('corrections')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Exporter les vêtements corrigés pour fine-tuning' })
@@ -69,7 +65,31 @@ export class ClothController {
     return await this.clothService.findCorrected();
   }
 
-  // ------------------ FIND ALL ------------------
+  // ✨ NOUVEAU : Stats globales (tous les utilisateurs)
+  @Get('stats/global')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Statistiques globales des corrections (admin/dashboard)',
+  })
+  async getGlobalStats() {
+    return await this.clothService.getGlobalCorrectionStats();
+  }
+
+  // ✨ NOUVEAU : Stats personnelles de l'utilisateur connecté
+  @Get('stats/me')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Mes statistiques de corrections et préférences',
+  })
+  @ApiBearerAuth()
+  async getMyStats(@GetUser() user: any) {
+    if (!user?.id) {
+      throw new UnauthorizedException('Utilisateur non authentifié');
+    }
+    return await this.clothService.getUserStats(user.id);
+  }
+
+  // FIND ALL
   @Get()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Retrieve all clothing items' })
@@ -80,24 +100,26 @@ export class ClothController {
   async findAll() {
     return await this.clothService.findAll();
   }
-  
+
+  // MY CLOTHES
   @Get('my')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Récupérer mes vêtements' })
-  @ApiResponse({ status: 200, description: 'Liste des vêtements de l\'utilisateur connecté.' })
+  @ApiResponse({
+    status: 200,
+    description: "Liste des vêtements de l'utilisateur connecté.",
+  })
   @ApiBearerAuth()
   async findMyClothes(@GetUser() user: any) {
-  if (!user?.id) {
-    throw new UnauthorizedException('Utilisateur non authentifié');
+    if (!user?.id) {
+      throw new UnauthorizedException('Utilisateur non authentifié');
+    }
+
+    const clothes = await this.clothService.findByUserId(user.id);
+    return clothes;
   }
 
-  const clothes = await this.clothService.findByUserId(user.id);
-  
-  // RETOURNE LE TABLEAU DIRECTEMENT
-  return clothes; // ← DOIT ÊTRE [Clothe]
-}
-
-  // ------------------ FIND ONE ------------------
+  // FIND ONE
   @Get(':id')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Get a clothing item by ID' })
@@ -115,11 +137,12 @@ export class ClothController {
   })
   async findOne(@Param('id') id: string) {
     const cloth = await this.clothService.findOne(id);
-    if (!cloth) throw new NotFoundException(`No clothing item found with ID ${id}`);
+    if (!cloth)
+      throw new NotFoundException(`No clothing item found with ID ${id}`);
     return cloth;
   }
 
-  // ------------------ UPDATE ------------------
+  // UPDATE
   @Patch(':id')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Update an existing clothing item' })
@@ -142,38 +165,42 @@ export class ClothController {
   @ApiBadRequestResponse({
     description: 'Invalid data sent for update.',
   })
-  async update(@Param('id') id: string, @Body() updateClothDto: UpdateClotheDto) {
+  async update(
+    @Param('id') id: string,
+    @Body() updateClothDto: UpdateClotheDto,
+  ) {
     try {
       return await this.clothService.update(id, updateClothDto);
     } catch (error) {
-      throw new NotFoundException(`Unable to update clothing item with ID ${id}`);
+      throw new NotFoundException(
+        `Unable to update clothing item with ID ${id}`,
+      );
     }
   }
 
-  // ------------------ DELETE (SÉCURISÉ) ------------------
+  // DELETE (SÉCURISÉ)
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: 'Supprimer un de MES vêtements (seulement si je suis le propriétaire)' })
+  @ApiOperation({
+    summary:
+      'Supprimer un de MES vêtements (seulement si je suis le propriétaire)',
+  })
   @ApiParam({ name: 'id', description: 'ID du vêtement à supprimer' })
   @ApiResponse({ status: 204, description: 'Vêtement supprimé avec succès' })
   @ApiNotFoundResponse({ description: 'Vêtement non trouvé' })
   @ApiBearerAuth()
-  async removeMyClothe(
-    @Param('id') id: string,
-    @GetUser() user: any, // ← Utilisateur connecté via JWT
-  ) {
+  async removeMyClothe(@Param('id') id: string, @GetUser() user: any) {
     if (!user?.id) {
       throw new UnauthorizedException('Utilisateur non authentifié');
     }
 
     const success = await this.clothService.removeMyClothe(id, user.id);
     if (!success) {
-      throw new NotFoundException(`Vêtement non trouvé ou vous n'êtes pas autorisé à le supprimer`);
+      throw new NotFoundException(
+        `Vêtement non trouvé ou vous n'êtes pas autorisé à le supprimer`,
+      );
     }
 
-    return; // 204 No Content
+    return;
   }
-  
 }
-
-
