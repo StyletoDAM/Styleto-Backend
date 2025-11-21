@@ -46,3 +46,4 @@ originalDetection: {
 }
 
 export const ClothesSchema = SchemaFactory.createForClass(Clothes);
+
