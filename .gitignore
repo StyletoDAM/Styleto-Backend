@@ -139,3 +139,5 @@ vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 debug_cropped.jpg
 debug_full.jpg
+test.jpg
+test_nobg.png
