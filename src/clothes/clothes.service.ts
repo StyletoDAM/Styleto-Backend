@@ -10,13 +10,15 @@ import { CreateClotheDto } from './dto/create-clothe.dto';
 import { UpdateClotheDto } from './dto/update-clothe.dto';
 import { User } from 'src/user/schemas/user.schema';
 import { UserPreferencesService } from './services/user-preferences.service';
+import { SubscriptionsService } from '../subscriptions/subscriptions.service'; // ✨ NOUVEAU
 
 @Injectable()
 export class ClothesService {
   constructor(
     @InjectModel(Clothes.name) private clothesModel: Model<ClothesDocument>,
     @InjectModel(User.name) private userModel: Model<Document>,
-    private userPreferencesService: UserPreferencesService, // ✨ NOUVEAU
+    private userPreferencesService: UserPreferencesService,
+    private subscriptionsService: SubscriptionsService, // ✨ NOUVEAU
   ) {}
 
   // Vérifie si un utilisateur existe avant d'associer un vêtement
@@ -32,10 +34,21 @@ export class ClothesService {
     return user;
   }
 
-  // CREATE : avec vérification de la clé étrangère
+  // CREATE : avec vérification de la clé étrangère ET DU QUOTA ✨
   async create(
     createClothesDto: CreateClotheDto & { userId: string },
   ): Promise<Clothes> {
+    // ✨ NOUVEAU : Vérifier le quota AVANT de créer
+    const quotaCheck = await this.subscriptionsService.canDetectClothes(
+      createClothesDto.userId,
+    );
+
+    if (!quotaCheck.allowed) {
+      throw new ForbiddenException(
+        quotaCheck.message || 'Quota exceeded for clothes detection',
+      );
+    }
+
     // Vérifie que l'utilisateur existe
     await this.verifyUserExists(createClothesDto.userId);
 
@@ -46,7 +59,12 @@ export class ClothesService {
 
     const savedClothes = await newClothes.save();
 
-    // ✨ NOUVEAU : Si c'est une correction, met à jour les préférences utilisateur
+    // ✨ NOUVEAU : Incrémenter le compteur APRÈS la création réussie
+    await this.subscriptionsService.incrementClothesDetection(
+      createClothesDto.userId,
+    );
+
+    // Si c'est une correction, met à jour les préférences utilisateur
     if (savedClothes.isCorrected && savedClothes.originalDetection) {
       await this.userPreferencesService.updateFromCorrection(
         createClothesDto.userId,

@@ -34,6 +34,7 @@ import { TwilioService } from './twilio.service';
 import { CloudinaryService } from 'src/cloudinary/cloudinary.service';
 import { ApiBearerAuth, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { SubscriptionsService } from '../subscriptions/subscriptions.service';
 
 interface JwtPayload {
   sub: string;
@@ -58,6 +59,7 @@ export class AuthService {
     private readonly httpService: HttpService,
     private readonly twilioService: TwilioService,
     private readonly cloudinaryService: CloudinaryService,
+    private readonly subscriptionsService: SubscriptionsService,
 
   ) {}
 
@@ -234,50 +236,51 @@ export class AuthService {
   }
 
   async verifyEmail(dto: VerifyEmailDto) {
-    let payload: any;
+  let payload: any;
 
-    try {
-      payload = await this.jwtService.verifyAsync(dto.tempToken);
-    } catch {
-      throw new UnauthorizedException('Token invalide ou expiré');
-    }
-
-    if (payload.code !== dto.code) {
-      throw new UnauthorizedException('Code incorrect');
-    }
-
-    const existingUser = await this.userService.findByEmail(payload.email);
-    if (existingUser) {
-      throw new ConflictException('Compte déjà créé');
-    }
-
-    const normalizedPhone = this.normalizePhoneNumber(payload.phoneNumber);
-    if (!normalizedPhone) {
-      throw new BadRequestException('Numéro de téléphone invalide');
-    }
-
-    const newUser = await this.userService.create({
-      fullName: payload.fullName,
-      email: payload.email,
-      password: payload.password,
-      gender: payload.gender,
-      phoneNumber: normalizedPhone,
-      preferences: Array.isArray(payload.preferences) ? payload.preferences : undefined,
-      isVerified: true,
-    });
-
-    return {
-      message: 'Compte créé avec succès',
-      user: {
-        id: newUser.id,
-        fullName: newUser.fullName,
-        email: newUser.email,
-        gender: newUser.gender,
-        phoneNumber: newUser.phoneNumber,
-        preferences: newUser.preferences,
-      },
-    };
+  try {
+    payload = await this.jwtService.verifyAsync(dto.tempToken);
+  } catch {
+    throw new UnauthorizedException('Token invalide ou expiré');
   }
+
+  if (payload.code !== dto.code) {
+    throw new UnauthorizedException('Code incorrect');
+  }
+
+  const existingUser = await this.userService.findByEmail(payload.email);
+  if (existingUser) {
+    throw new ConflictException('Compte déjà créé');
+  }
+
+  const normalizedPhone = this.normalizePhoneNumber(payload.phoneNumber);
+  if (!normalizedPhone) {
+    throw new BadRequestException('Numéro de téléphone invalide');
+  }
+
+  const newUser = await this.userService.create({
+    fullName: payload.fullName,
+    email: payload.email,
+    password: payload.password,
+    gender: payload.gender,
+    phoneNumber: normalizedPhone,
+    preferences: Array.isArray(payload.preferences) ? payload.preferences : undefined,
+    isVerified: true,
+  });
+  await this.subscriptionsService.createDefaultSubscription(newUser.id);
+
+  return {
+    message: 'Compte créé avec succès',
+    user: {
+      id: newUser.id,
+      fullName: newUser.fullName,
+      email: newUser.email,
+      gender: newUser.gender,
+      phoneNumber: newUser.phoneNumber,
+      preferences: newUser.preferences,
+    },
+  };
+}
 
   async forgotPassword(dto: ForgotPasswordDto) {
     const user = await this.userService.findByEmail(dto.email);
@@ -465,45 +468,43 @@ export class AuthService {
     await this.userService.removeById(userId);
   }
 
-  // --- GOOGLE AUTH ---
-  async googleAuth(googleAuthDto: GoogleAuthDto): Promise<AuthResponse> {
-    let user = await this.userService.findByGoogleId(googleAuthDto.googleId);
+// 4. Modifier googleAuth pour créer subscription
+async googleAuth(googleAuthDto: GoogleAuthDto): Promise<AuthResponse> {
+  let user = await this.userService.findByGoogleId(googleAuthDto.googleId);
 
-    if (!user) {
-      const existingUser = await this.userService.findByEmail(googleAuthDto.email);
-      if (existingUser) {
-        // LIEN COMPTE EXISTANT
-        const updates: UpdateUserInput = {
-          googleId: googleAuthDto.googleId,
-          authProvider: 'google',
-        };
+  if (!user) {
+    const existingUser = await this.userService.findByEmail(googleAuthDto.email);
+    if (existingUser) {
+      const updates: UpdateUserInput = {
+        googleId: googleAuthDto.googleId,
+        authProvider: 'google',
+      };
 
-        // UNIQUEMENT si PAS d'image existante
-        if (!existingUser.profilePicture && googleAuthDto.profilePicture) {
-          updates.profilePicture = googleAuthDto.profilePicture;
-        }
-
-        await this.userService.updateById(existingUser.id, updates);
-        user = await this.userService.findByGoogleId(googleAuthDto.googleId);
-      } else {
-        // NOUVEAU COMPTE
-        user = await this.userService.create({
-          fullName: googleAuthDto.fullName,
-          email: googleAuthDto.email,
-          gender: googleAuthDto.gender || 'male',
-          authProvider: 'google',
-          googleId: googleAuthDto.googleId,
-          // UNIQUEMENT si fourni
-          profilePicture: googleAuthDto.profilePicture || undefined,
-          isVerified: true,
-        });
+      if (!existingUser.profilePicture && googleAuthDto.profilePicture) {
+        updates.profilePicture = googleAuthDto.profilePicture;
       }
-    }
 
-    if (!user) throw new UnauthorizedException('Failed to authenticate with Google');
-    return this.login(user);
+      await this.userService.updateById(existingUser.id, updates);
+      user = await this.userService.findByGoogleId(googleAuthDto.googleId);
+    } else {
+      user = await this.userService.create({
+        fullName: googleAuthDto.fullName,
+        email: googleAuthDto.email,
+        gender: googleAuthDto.gender || 'male',
+        authProvider: 'google',
+        googleId: googleAuthDto.googleId,
+        profilePicture: googleAuthDto.profilePicture || undefined,
+        isVerified: true,
+      });
+
+      // ✨ NOUVEAU : Créer subscription pour nouveau compte Google
+      await this.subscriptionsService.createDefaultSubscription(user.id);
+    }
   }
 
+  if (!user) throw new UnauthorizedException('Failed to authenticate with Google');
+  return this.login(user);
+}
   // --- APPLE PUBLIC KEYS ---
   private async getApplePublicKeys() {
     const now = Date.now();
@@ -518,28 +519,24 @@ export class AuthService {
     return this.appleJwksCache;
   }
 
-  // --- APPLE AUTH ---
+// 5. Modifier appleAuth pour créer subscription
 async appleAuth(dto: AppleAuthDto): Promise<AuthResponse> {
   const { identityToken, fullName, email } = dto;
 
-  // 1. Décodage
   const decoded = jwt.decode(identityToken) as any;
   if (!decoded || decoded.iss !== 'https://appleid.apple.com') {
     throw new UnauthorizedException('Token Apple invalide');
   }
 
-  // 2. Récupération clé publique
   const jwks = await this.getApplePublicKeys();
   const key = jwks.keys.find((k: any) => k.kid === decoded.kid);
   if (!key) throw new UnauthorizedException('Clé Apple introuvable');
 
-  // 3. Vérification signature
   const pem = jwkToPem(key);
   jwt.verify(identityToken, pem, { algorithms: ['RS256'] });
 
   const appleId = decoded.sub;
 
-  // 4. Recherche ou création
   let user = await this.userService.findByAppleId(appleId);
   if (!user) {
     user = await this.userService.create({
@@ -549,9 +546,11 @@ async appleAuth(dto: AppleAuthDto): Promise<AuthResponse> {
       authProvider: 'apple',
       isVerified: true,
     });
+
+    // ✨ NOUVEAU : Créer subscription pour nouveau compte Apple
+    await this.subscriptionsService.createDefaultSubscription(user.id);
   }
 
-  // UTILISE login() → IDENTIQUE À GOOGLE
   return this.login(user);
 }
 

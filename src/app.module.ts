@@ -15,6 +15,7 @@ import { AvatarsModule } from './avatars/avatars.module';
 import { CloudinaryModule } from './cloudinary/cloudinary.module';
 import { ConfigModule } from '@nestjs/config';
 import { ChatModule } from './chat/chat.module';
+import { SubscriptionsModule } from './subscriptions/subscriptions.module';
 import Joi from 'joi';
 // ✨ NOUVEAUX IMPORTS
 import { ScheduleModule } from '@nestjs/schedule';
@@ -78,6 +79,7 @@ import { ClothesService } from './clothes/clothes.service';
     AvatarsModule,
     CloudinaryModule,
     ChatModule,
+    SubscriptionsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
