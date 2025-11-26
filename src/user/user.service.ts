@@ -33,6 +33,7 @@ export interface UpdateUserInput {
   googleId?: string;
   appleId?: string;
   profilePicture?: string;
+  balance?: number;
 
   // Champs pour vérification email
   isVerified?: boolean;
@@ -184,25 +185,34 @@ export class UserService {
     return safeUser;
   }
 
-  async addToBalance(userId: string, amount: number): Promise<SafeUser | null> {
-  if (amount <= 0) {
-    throw new BadRequestException('Amount must be positive');
-  }
-  
-  // Récupérer l'utilisateur
-  const user = await this.userModel.findById(userId).exec();
-  if (!user) {
-    throw new NotFoundException(`User with ID ${userId} not found`);
+  async addToBalance(userId: string, amountInCents: number): Promise<SafeUser> {
+  if (amountInCents <= 0) {
+    throw new BadRequestException('Le montant doit être positif');
   }
 
-  // Incrémenter le balance
-  user.balance = (user.balance || 0) + amount;
-  await user.save();
+  const updatedUser = await this.userModel
+    .findByIdAndUpdate(
+      userId,
+      { $inc: { balance: amountInCents } },
+      { new: true, useFindAndModify: false }
+    )
+    .exec();
 
-  // Retourner SafeUser
-  const safeUser = user.toObject() as SafeUser;
-  safeUser.id = safeUser.id ?? String(user._id);
-  return safeUser;
+  if (!updatedUser) {
+    throw new NotFoundException('Utilisateur introuvable');
+  }
+
+  // LA LIGNE MAGIQUE QUI TUE TOUTES LES ERREURS TYPESCRIPT
+  const userObj = updatedUser.toObject({ virtuals: true });
+
+  return {
+    ...(userObj as any),
+    id: updatedUser.id, // ← NestJS ajoute automatiquement .id comme virtual
+    _id: undefined,
+    __v: undefined,
+    password: undefined,
+  } as SafeUser;
 }
+
   
 }
