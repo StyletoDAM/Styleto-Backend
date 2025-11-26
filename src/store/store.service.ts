@@ -231,7 +231,7 @@ async confirmPurchase(storeItemId: string, paymentIntentId: string, buyerId: str
     console.log(`[DEV MODE] Item price: ${item.price}, Seller ID: ${sellerId}`);  // ✅ Afficher juste l'ID
   }
 
-  // ✅ CORRECTION : Passer le string ID, pas l'objet
+  // Simple: ajouter le prix directement en TND
   await this.userService.addToBalance(sellerId, item.price);
 
   // Marquer l'item comme vendu

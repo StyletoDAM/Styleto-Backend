@@ -200,12 +200,16 @@ async updateProfilePhoto(
 @ApiOperation({ summary: "Recharger le solde de l'utilisateur" })
 @ApiBody({ type: TopUpBalanceDto })
 async topUpBalance(@Request() req: any, @Body() dto: TopUpBalanceDto) {
+  // Simple: travailler directement avec le montant en TND
+  const amount = Number(dto.amount);
+  
   const updatedUser = await this.userService.addToBalance(
     req.user.id,
-    Math.round(dto.amount * 100)
+    amount
   );
 
-  const balanceTND = Number((updatedUser.balance / 100).toFixed(2));
+  // Le balance est déjà en TND, pas de conversion nécessaire
+  const balanceTND = Number(updatedUser.balance) || 0;
 
   return {
     message: 'Solde rechargé avec succès !',

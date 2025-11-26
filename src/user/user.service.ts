@@ -185,15 +185,17 @@ export class UserService {
     return safeUser;
   }
 
-  async addToBalance(userId: string, amountInCents: number): Promise<SafeUser> {
-  if (amountInCents <= 0) {
-    throw new BadRequestException('Le montant doit être positif');
+  async addToBalance(userId: string, amount: number): Promise<SafeUser> {
+  // Simple validation: montant positif en TND
+  const amountTND = Number(amount);
+  if (amountTND <= 0 || isNaN(amountTND)) {
+    throw new BadRequestException('Le montant doit être un nombre positif');
   }
 
   const updatedUser = await this.userModel
     .findByIdAndUpdate(
       userId,
-      { $inc: { balance: amountInCents } },
+      { $inc: { balance: amountTND } },
       { new: true, useFindAndModify: false }
     )
     .exec();
