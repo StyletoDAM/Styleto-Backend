@@ -21,11 +21,15 @@ import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { VerifyOtpDto } from './dto/verify-otp.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { FileInterceptor } from '@nestjs/platform-express';
-
+import { TopUpBalanceDto } from './dto/top-up-balance.dto';
+import { UserService } from '../user/user.service';
 @ApiTags('Auth')
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(private readonly authService: AuthService,
+        private readonly userService: UserService,   // AJOUTE ÇA
+
+    ) {}
 
   // --- Signup ---
   @Post('signup')
@@ -190,4 +194,26 @@ async updateProfilePhoto(
   async deleteProfilePhoto(@Request() req) {
     return this.authService.deleteProfilePhoto(req.user.id);
   }
+  @UseGuards(JwtAuthGuard)
+@Post('balance/topup')
+@ApiBearerAuth()
+@ApiOperation({ summary: "Recharger le solde de l'utilisateur" })
+@ApiBody({ type: TopUpBalanceDto })
+async topUpBalance(@Request() req: any, @Body() dto: TopUpBalanceDto) {
+  const updatedUser = await this.userService.addToBalance(
+    req.user.id,
+    Math.round(dto.amount * 100)
+  );
+
+  const balanceTND = Number((updatedUser.balance / 100).toFixed(2));
+
+  return {
+    message: 'Solde rechargé avec succès !',
+    newBalance: `${balanceTND.toFixed(2)} TND`,
+    user: {
+      ...updatedUser,
+      balance: balanceTND,
+    },
+  };
+}
 }

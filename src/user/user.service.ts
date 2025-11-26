@@ -33,6 +33,7 @@ export interface UpdateUserInput {
   googleId?: string;
   appleId?: string;
   profilePicture?: string;
+  balance?: number;
 
   // Champs pour vérification email
   isVerified?: boolean;
@@ -184,25 +185,31 @@ export class UserService {
     return safeUser;
   }
 
-  async addToBalance(userId: string, amount: number): Promise<SafeUser | null> {
-  if (amount <= 0) {
-    throw new BadRequestException('Amount must be positive');
+  async addToBalance(userId: string, amountInCents: number): Promise<SafeUser> {
+  if (amountInCents <= 0) {
+    throw new BadRequestException('Le montant doit être positif');
   }
-  
-  // Récupérer l'utilisateur
+
   const user = await this.userModel.findById(userId).exec();
   if (!user) {
-    throw new NotFoundException(`User with ID ${userId} not found`);
+    throw new NotFoundException('Utilisateur introuvable');
   }
 
-  // Incrémenter le balance
-  user.balance = (user.balance || 0) + amount;
+  // ON AJOUTE LE MONTANT → 80 + 50 = 130 GARANTI
+  user.balance = (user.balance || 0) + amountInCents;
   await user.save();
 
-  // Retourner SafeUser
-  const safeUser = user.toObject() as SafeUser;
-  safeUser.id = safeUser.id ?? String(user._id);
-  return safeUser;
+  // ON UTILISE "id" QUI EXISTE DÉJÀ SUR LE DOCUMENT MONGOOSE
+  const plain = user.toObject({ getters: true });
+
+  return {
+    ...plain,
+    id: user.id, // user.id EXISTE TOUJOURS, C'EST LE GETTER DE MONGOOSE
+    _id: undefined,
+    __v: undefined,
+    password: undefined,
+  } as SafeUser;
 }
+
   
 }
