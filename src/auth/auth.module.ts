@@ -13,6 +13,7 @@ import { HttpModule } from '@nestjs/axios';
 import { AppleStrategy } from './strategies/apple.strategy';
 import { TwilioService } from './twilio.service';
 import { CloudinaryModule } from 'src/cloudinary/cloudinary.module';
+import { SubscriptionsModule } from 'src/subscriptions/subscriptions.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { CloudinaryModule } from 'src/cloudinary/cloudinary.module';
     MailerCustomModule,
     HttpModule,
     CloudinaryModule,
+    SubscriptionsModule, // <-- AJOUTÉ
   ],
   controllers: [AuthController],
   providers: [AuthService, LocalStrategy, JwtStrategy, GoogleStrategy, AppleStrategy, TwilioService],

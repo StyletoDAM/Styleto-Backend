@@ -10,12 +10,14 @@ import { Outfit, OutfitDocument } from './schemas/outfits.schema';
 import { CreateOutfitDto } from './dto/create-outfit.dto';
 import { UpdateOutfitDto } from './dto/update-outfit.dto';
 import { Clothes, ClothesDocument } from 'src/clothes/schemas/clothes.schema';
+import { SubscriptionsService } from '../subscriptions/subscriptions.service'; // ✨ NOUVEAU
 
 @Injectable()
 export class OutfitsService {
   constructor(
     @InjectModel(Outfit.name) private outfitModel: Model<OutfitDocument>,
     @InjectModel(Clothes.name) private clothesModel: Model<ClothesDocument>,
+    private subscriptionsService: SubscriptionsService, // ✨ NOUVEAU
   ) {}
 
   // Vérifie si un ObjectId est valide
@@ -77,56 +79,58 @@ export class OutfitsService {
       .exec();
   }
 
-  /// FIND ONE
-async findOne(id: string): Promise<Outfit> {
-  if (!this.isValidId(id)) {
-    throw new BadRequestException('Invalid outfit ID');
+  // FIND ONE
+  async findOne(id: string): Promise<Outfit> {
+    if (!this.isValidId(id)) {
+      throw new BadRequestException('Invalid outfit ID');
+    }
+
+    const outfit = await this.outfitModel
+      .findById(id)
+      .populate('userId', '-password -__v')
+      .populate('clothesIds')
+      .exec();
+
+    if (!outfit) {
+      throw new NotFoundException(`Outfit with ID ${id} not found`);
+    }
+
+    return outfit;
   }
 
-  const outfit = await this.outfitModel
-    .findById(id)
-    .populate('userId', '-password -__v')
-    .populate('clothesIds')
-    .exec();
-
-  if (!outfit) {
-    throw new NotFoundException(`Outfit with ID ${id} not found`);
-  }
-
-  return outfit;
-}
   // UPDATE
-async update(id: string, dto: UpdateOutfitDto, userId: string): Promise<Outfit> {
-  if (!this.isValidId(id)) {
-    throw new BadRequestException('Invalid outfit ID');
+  async update(id: string, dto: UpdateOutfitDto, userId: string): Promise<Outfit> {
+    if (!this.isValidId(id)) {
+      throw new BadRequestException('Invalid outfit ID');
+    }
+
+    const outfit = await this.outfitModel.findById(id).exec();
+    if (!outfit) {
+      throw new NotFoundException(`Outfit with ID ${id} not found`);
+    }
+
+    // Vérifie la propriété
+    if (outfit.userId.toString() !== userId) {
+      throw new ForbiddenException('Vous ne pouvez pas modifier cet outfit');
+    }
+
+    if (dto.clothesIds && dto.clothesIds.length > 0) {
+      await this.verifyClothesOwnership(dto.clothesIds, userId);
+    }
+
+    const updated = await this.outfitModel
+      .findByIdAndUpdate(id, dto, { new: true })
+      .populate('userId', '-password -__v')
+      .populate('clothesIds')
+      .exec();
+
+    if (!updated) {
+      throw new NotFoundException(`Outfit with ID ${id} not found after update`);
+    }
+
+    return updated;
   }
 
-  const outfit = await this.outfitModel.findById(id).exec();
-  if (!outfit) {
-    throw new NotFoundException(`Outfit with ID ${id} not found`);
-  }
-
-  // Vérifie la propriété
-  if (outfit.userId.toString() !== userId) {
-    throw new ForbiddenException('Vous ne pouvez pas modifier cet outfit');
-  }
-
-  if (dto.clothesIds && dto.clothesIds.length > 0) {
-    await this.verifyClothesOwnership(dto.clothesIds, userId);
-  }
-
-  const updated = await this.outfitModel
-    .findByIdAndUpdate(id, dto, { new: true })
-    .populate('userId', '-password -__v')
-    .populate('clothesIds')
-    .exec();
-
-  if (!updated) {
-    throw new NotFoundException(`Outfit with ID ${id} not found after update`);
-  }
-
-  return updated;
-}
   // DELETE
   async remove(id: string, userId: string): Promise<void> {
     if (!this.isValidId(id)) {
@@ -145,38 +149,49 @@ async update(id: string, dto: UpdateOutfitDto, userId: string): Promise<Outfit> 
     await this.outfitModel.findByIdAndDelete(id).exec();
   }
 
-  // outfits.service.ts
+  // ✨ MODIFIÉ : generateRandom avec vérification quota
+  async generateRandom(userId: string): Promise<Partial<Outfit>> {
+    if (!this.isValidId(userId)) {
+      throw new BadRequestException('Invalid user ID');
+    }
 
+    // ✨ NOUVEAU : Vérifier le quota AVANT de générer
+    const quotaCheck = await this.subscriptionsService.canGenerateOutfit(userId);
 
-async generateRandom(userId: string): Promise<Partial<Outfit>> {
-  if (!this.isValidId(userId)) {
-    throw new BadRequestException('Invalid user ID');
-  }
+    if (!quotaCheck.allowed) {
+      throw new ForbiddenException(
+        quotaCheck.message || 'Quota exceeded for outfit generation',
+      );
+    }
 
-  // 1. Récupérer TOUS les vêtements de l'utilisateur
-  const userClothes = await this.clothesModel
-    .find({ userId: new Types.ObjectId(userId) })
-    .exec();
+    // 1. Récupérer TOUS les vêtements de l'utilisateur
+    const userClothes = await this.clothesModel
+      .find({ userId: new Types.ObjectId(userId) })
+      .exec();
 
-  if (userClothes.length < 3) {
-    throw new BadRequestException(
-      `Vous avez seulement ${userClothes.length} vêtement(s). Ajoutez-en au moins 3 pour générer un outfit.`,
+    if (userClothes.length < 3) {
+      throw new BadRequestException(
+        `Vous avez seulement ${userClothes.length} vêtement(s). Ajoutez-en au moins 3 pour générer un outfit.`,
+      );
+    }
+
+    // 2. Mélanger et prendre 3 vêtements aléatoires
+    const shuffled = userClothes.sort(() => 0.5 - Math.random());
+    const selectedClothes = shuffled.slice(0, 3);
+
+    // ✨ NOUVEAU : Incrémenter le compteur APRÈS la génération réussie
+    await this.subscriptionsService.incrementOutfitSuggestion(userId);
+
+    // 3. Retourner un "suggestion" sans sauvegarder
+    const clothesIds: Types.ObjectId[] = selectedClothes.map(
+      (c) => c._id as Types.ObjectId,
     );
+
+    return {
+      clothesIds,
+      eventType: 'Aléatoire',
+      weatherType: 'Toutes saisons',
+      status: 'pending',
+    };
   }
-
-  // 2. Mélanger et prendre 3 vêtements aléatoires
-  const shuffled = userClothes.sort(() => 0.5 - Math.random());
-  const selectedClothes = shuffled.slice(0, 3);
-
-  // 3. Retourner un "suggestion" sans sauvegarder
-  const clothesIds: Types.ObjectId[] = selectedClothes.map((c) => c._id as Types.ObjectId);
-
-  return {
-    clothesIds,
-    eventType: 'Aléatoire',
-    weatherType: 'Toutes saisons',
-    status: 'pending',
-  };
-}
-
 }
