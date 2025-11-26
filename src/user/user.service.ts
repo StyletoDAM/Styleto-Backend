@@ -185,31 +185,26 @@ export class UserService {
     return safeUser;
   }
 
-  async addToBalance(userId: string, amount: number): Promise<SafeUser> {
-  // Simple validation: montant positif en TND
-  const amountTND = Number(amount);
-  if (amountTND <= 0 || isNaN(amountTND)) {
-    throw new BadRequestException('Le montant doit être un nombre positif');
+  async addToBalance(userId: string, amountInCents: number): Promise<SafeUser> {
+  if (amountInCents <= 0) {
+    throw new BadRequestException('Le montant doit être positif');
   }
 
-  const updatedUser = await this.userModel
-    .findByIdAndUpdate(
-      userId,
-      { $inc: { balance: amountTND } },
-      { new: true, useFindAndModify: false }
-    )
-    .exec();
-
-  if (!updatedUser) {
+  const user = await this.userModel.findById(userId).exec();
+  if (!user) {
     throw new NotFoundException('Utilisateur introuvable');
   }
 
-  // LA LIGNE MAGIQUE QUI TUE TOUTES LES ERREURS TYPESCRIPT
-  const userObj = updatedUser.toObject({ virtuals: true });
+  // ON AJOUTE LE MONTANT → 80 + 50 = 130 GARANTI
+  user.balance = (user.balance || 0) + amountInCents;
+  await user.save();
+
+  // ON UTILISE "id" QUI EXISTE DÉJÀ SUR LE DOCUMENT MONGOOSE
+  const plain = user.toObject({ getters: true });
 
   return {
-    ...(userObj as any),
-    id: updatedUser.id, // ← NestJS ajoute automatiquement .id comme virtual
+    ...plain,
+    id: user.id, // user.id EXISTE TOUJOURS, C'EST LE GETTER DE MONGOOSE
     _id: undefined,
     __v: undefined,
     password: undefined,
