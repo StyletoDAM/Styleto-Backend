@@ -63,7 +63,13 @@ export class AuthController {
   @ApiResponse({ status: 200, description: 'Returns authenticated user profile.' })
   @ApiResponse({ status: 401, description: 'Missing or invalid authentication token.' })
   getProfile(@Request() req: { user: SafeUser }) {
-    return req.user;
+    // Convertir le balance de cents en TND pour cohérence avec topup
+    const balanceTND = Number((req.user.balance / 100).toFixed(2));
+    
+    return {
+      ...req.user,
+      balance: balanceTND,
+    };
   }
 
   // --- Update Profile ---
@@ -202,7 +208,7 @@ async updateProfilePhoto(
 async topUpBalance(@Request() req: any, @Body() dto: TopUpBalanceDto) {
   const updatedUser = await this.userService.addToBalance(
     req.user.id,
-    Math.round(dto.amount * 100)
+    Math.round(dto.amount)
   );
 
   const balanceTND = Number((updatedUser.balance / 100).toFixed(2));

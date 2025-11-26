@@ -3,11 +3,11 @@ import { IsNumber, Min } from 'class-validator';
 
 export class TopUpBalanceDto {
   @ApiProperty({
-    description: 'Montant à ajouter au solde (en TND)',
-    example: 50.0,
-    minimum: 0.1,
+    description: 'Montant à ajouter au solde (en cents)',
+    example: 5000,
+    minimum: 1,
   })
   @IsNumber({ maxDecimalPlaces: 2 })
-  @Min(0.1)
+  @Min(1)
   amount: number;
 }
