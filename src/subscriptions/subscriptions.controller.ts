@@ -3,16 +3,18 @@ import {
   Controller,
   Get,
   Post,
+  Patch,
   Body,
   Param,
   UseGuards,
   BadRequestException,
 } from '@nestjs/common';
-import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
+import { ApiTags, ApiBearerAuth, ApiOperation, ApiBody, ApiResponse } from '@nestjs/swagger';
 import { SubscriptionsService } from './subscriptions.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { GetUser } from '../common/decorators/get-user.decorator';
 import { SubscriptionPlan } from './schemas/subscription.schema';
+import { UpdateSubscriptionDto } from './dto/update-subscription.dto';
 
 // ✅ DTO pour le paiement simulé
 class SimulatePaymentDto {
@@ -210,5 +212,81 @@ export class SubscriptionsController {
   @ApiOperation({ summary: 'Check if user can sell items in store' })
   async canSell(@GetUser() user: any) {
     return this.service.canSellItem(user.id);
+  }
+
+  // --------------------------
+  // PATCH : Mettre à jour l'abonnement
+  // --------------------------
+
+  @Patch('me')
+  @ApiOperation({ 
+    summary: 'Update subscription plan',
+    description: 'Change the user subscription plan. Example: { "plan": "PREMIUM" } or { "plan": "PRO_SELLER" }'
+  })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        plan: {
+          type: 'string',
+          enum: ['FREE', 'PREMIUM', 'PRO_SELLER'],
+          example: 'PREMIUM',
+          description: 'The subscription plan to set'
+        }
+      },
+      required: ['plan'],
+      example: {
+        plan: 'PREMIUM'
+      }
+    }
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Subscription updated successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        message: { type: 'string', example: 'Subscription updated successfully' },
+        subscription: {
+          type: 'object',
+          properties: {
+            plan: { type: 'string', example: 'PREMIUM' },
+            subscribedAt: { type: 'string', format: 'date-time' },
+            expiresAt: { type: 'string', format: 'date-time' },
+            isActive: { type: 'boolean', example: true }
+          }
+        }
+      }
+    }
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Invalid plan',
+    schema: {
+      type: 'object',
+      properties: {
+        statusCode: { type: 'number', example: 400 },
+        message: { type: 'string', example: 'Invalid plan' }
+      }
+    }
+  })
+  async updateSubscription(
+    @GetUser() user: any,
+    @Body() updateDto: UpdateSubscriptionDto
+  ) {
+    // Le DTO avec @IsEnum valide déjà le plan, mais on normalise quand même pour être sûr
+    const normalizedPlan = this.normalizePlan(updateDto.plan);
+
+    const subscription = await this.service.upgradePlan(user.id, normalizedPlan);
+
+    return {
+      message: 'Subscription updated successfully',
+      subscription: {
+        plan: subscription.plan,
+        subscribedAt: subscription.subscribedAt,
+        expiresAt: subscription.expiresAt,
+        isActive: subscription.isActive,
+      },
+    };
   }
 }
