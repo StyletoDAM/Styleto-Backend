@@ -30,7 +30,7 @@ export class OrdersService {
   async findAll(userId: string): Promise<Order[]> {
     return await this.orderModel
       .find({ userId: new Types.ObjectId(userId) })
-      .populate('clothesId', 'name type imageUrl')
+      .populate('clothesId', 'name category imageURL')
       .populate('userId', 'fullName email')
       .sort({ orderDate: -1 })
       .exec();
@@ -42,7 +42,7 @@ export class OrdersService {
   async findAllAdmin(): Promise<Order[]> {
     return await this.orderModel
       .find()
-      .populate('clothesId', 'name type imageUrl')
+      .populate('clothesId', 'name category imageURL')
       .populate('userId', 'fullName email')
       .sort({ orderDate: -1 })
       .exec();

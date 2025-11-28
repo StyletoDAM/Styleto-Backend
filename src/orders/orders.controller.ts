@@ -95,15 +95,15 @@ export class OrdersController {
         type: 'object',
         properties: {
           _id: { type: 'string', example: '507f1f77bcf86cd799439012' },
-          clothesId: {
-            type: 'object',
-            properties: {
-              _id: { type: 'string' },
-              name: { type: 'string', example: 'T-Shirt' },
-              type: { type: 'string', example: 'top' },
-              imageUrl: { type: 'string', example: 'https://example.com/image.jpg' }
-            }
-          },
+              clothesId: {
+                type: 'object',
+                properties: {
+                  _id: { type: 'string' },
+                  name: { type: 'string', example: 'T-Shirt' },
+                  category: { type: 'string', example: 'top' },
+                  imageURL: { type: 'string', example: 'https://example.com/image.jpg' }
+                }
+              },
           userId: {
             type: 'object',
             properties: {
@@ -124,8 +124,8 @@ export class OrdersController {
           clothesId: {
             _id: '507f1f77bcf86cd799439011',
             name: 'Blue T-Shirt',
-            type: 'top',
-            imageUrl: 'https://example.com/image.jpg'
+            category: 'top',
+            imageURL: 'https://example.com/image.jpg'
           },
           userId: {
             _id: '507f1f77bcf86cd799439013',
