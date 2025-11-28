@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   Post,
+  Body,
   Param,
   UseGuards,
   BadRequestException,
@@ -12,30 +13,37 @@ import { SubscriptionsService } from './subscriptions.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { GetUser } from '../common/decorators/get-user.decorator';
 import { SubscriptionPlan } from './schemas/subscription.schema';
-import { StripeService } from './stripe.service';
+
+// ✅ DTO pour le paiement simulé
+class SimulatePaymentDto {
+  cardNumber: string;
+  expiryDate: string;
+  cvv: string;
+  cardholderName: string;
+}
 
 @ApiTags('Subscriptions')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard)
 @Controller('subscriptions')
 export class SubscriptionsController {
-  constructor(
-    private readonly service: SubscriptionsService,
-    private readonly stripeService: StripeService,
-  ) {}
+  constructor(private readonly service: SubscriptionsService) {}
 
   // --------------------------
   // Utilitaire : normaliser plan
   // --------------------------
   private normalizePlan(plan: string): SubscriptionPlan {
-  const normalized = plan.trim().toUpperCase().replace(/-/g, '_');
-  if (!Object.values(SubscriptionPlan).includes(normalized as SubscriptionPlan)) {
-    throw new BadRequestException('Invalid plan');
+    const normalized = plan.trim().toUpperCase().replace(/-/g, '_');
+
+    if (!Object.values(SubscriptionPlan).includes(normalized as SubscriptionPlan)) {
+      throw new BadRequestException('Invalid plan');
+    }
+
+    return normalized as SubscriptionPlan;
   }
-  return normalized as SubscriptionPlan;
-}
+
   // --------------------------
-  // Endpoints
+  // GET : Infos abonnement
   // --------------------------
 
   @Get('me')
@@ -50,46 +58,141 @@ export class SubscriptionsController {
     return this.service.getUsageStats(user.id);
   }
 
-  @Post('upgrade/:plan')
-  @ApiOperation({ summary: 'Upgrade subscription plan (production)' })
-  async upgradePlan(@Param('plan') plan: string, @GetUser() user: any) {
-    const normalizedPlan = this.normalizePlan(plan);
-
-    const subscription = await this.service.upgradePlan(user.id, normalizedPlan);
+  @Get('plans')
+  @ApiOperation({ summary: 'Get all available subscription plans (in TND)' })
+  async getPlans() {
     return {
-      message: `Successfully upgraded to ${normalizedPlan}`,
-      subscription,
+      plans: [
+        {
+          id: SubscriptionPlan.FREE,
+          name: 'Free Pack',
+          price: 0,
+          priceDisplay: 'Gratuit',
+          features: {
+            clothesDetection: 5,
+            outfitSuggestions: 3,
+            storeSelling: 3,
+          },
+          color: '#9CA3AF',
+          description: 'Plan de base avec fonctionnalités limitées',
+        },
+        {
+          id: SubscriptionPlan.PREMIUM,
+          name: 'Premium',
+          price: 30,
+          priceDisplay: '30 TND/mois',
+          features: {
+            clothesDetection: 'illimité',
+            outfitSuggestions: 'illimité',
+            storeSelling: 3,
+          },
+          color: '#CA3C66',
+          description: 'Détection et suggestions illimitées',
+        },
+        {
+          id: SubscriptionPlan.PRO_SELLER,
+          name: 'Pro Seller',
+          price: 90,
+          priceDisplay: '90 TND/mois',
+          features: {
+            clothesDetection: 'illimité',
+            outfitSuggestions: 'illimité',
+            storeSelling: 'illimité',
+          },
+          color: '#4AA3A2',
+          description: 'Toutes les fonctionnalités + vente illimitée',
+        },
+      ],
     };
   }
 
-  @Post('upgrade/:plan/test')
-  @ApiOperation({ summary: 'Upgrade subscription plan (test simulation)' })
-  async upgradePlanTest(@Param('plan') plan: string, @GetUser() user: any) {
+  // --------------------------
+  // POST : Paiement simulé (pour projet académique)
+  // --------------------------
+
+  @Post('purchase/:plan')
+  @ApiOperation({ 
+    summary: 'Simulate payment and activate plan (Academic project)',
+    description: 'Use card number 4242424242424242 for test payment'
+  })
+  async simulatePurchase(
+    @Param('plan') plan: string,
+    @Body() paymentData: SimulatePaymentDto,
+    @GetUser() user: any,
+  ) {
     const normalizedPlan = this.normalizePlan(plan);
 
-    const subscription = await this.service.upgradePlan(user.id, normalizedPlan);
+    // ✅ Validation de la carte de test Stripe
+    const validTestCards = [
+      '4242424242424242',
+      '4242 4242 4242 4242',
+      '4242-4242-4242-4242',
+    ];
+
+    const cleanCardNumber = paymentData.cardNumber.replace(/[\s-]/g, '');
+
+    if (!validTestCards.some(card => card.replace(/[\s-]/g, '') === cleanCardNumber)) {
+      throw new BadRequestException({
+        success: false,
+        message: 'Carte invalide. Utilisez 4242 4242 4242 4242 pour les tests.',
+      });
+    }
+
+    // ✅ Validation CVV (3 chiffres)
+    if (!/^\d{3,4}$/.test(paymentData.cvv)) {
+      throw new BadRequestException({
+        success: false,
+        message: 'CVV invalide. Entrez 3 ou 4 chiffres.',
+      });
+    }
+
+    // ✅ Validation date d'expiration (format MM/YY ou MM/YYYY)
+    if (!/^\d{2}\/\d{2,4}$/.test(paymentData.expiryDate)) {
+      throw new BadRequestException({
+        success: false,
+        message: 'Date d\'expiration invalide. Format attendu: MM/YY',
+      });
+    }
+
+    // ✅ Simulation de délai réseau (pour réalisme)
+    await new Promise(resolve => setTimeout(resolve, 1500));
+
+    // ✅ Activer l'abonnement
+    const subscription = await this.service.upgradePlan(user.id, normalizedPlan, {
+      subscriptionId: `test_sub_${Date.now()}`,
+      customerId: `test_cus_${user.id}`,
+    });
+
+    // ✅ Récupérer les infos du plan
+    const planDetails = {
+      [SubscriptionPlan.FREE]: { name: 'Free Pack', price: 0 },
+      [SubscriptionPlan.PREMIUM]: { name: 'Premium', price: 30 },
+      [SubscriptionPlan.PRO_SELLER]: { name: 'Pro Seller', price: 90 },
+    };
+
     return {
-      message: `Test purchase successful! You are now on the ${normalizedPlan} plan.`,
-      subscription,
+      success: true,
+      message: `🎉 Paiement réussi ! Vous êtes maintenant abonné au plan ${planDetails[normalizedPlan].name}.`,
+      transaction: {
+        id: `txn_${Date.now()}`,
+        amount: planDetails[normalizedPlan].price,
+        currency: 'TND',
+        plan: normalizedPlan,
+        date: new Date().toISOString(),
+        cardLast4: cleanCardNumber.slice(-4),
+      },
+      subscription: {
+        plan: subscription.plan,
+        subscribedAt: subscription.subscribedAt,
+        expiresAt: subscription.expiresAt,
+        isActive: subscription.isActive,
+      },
     };
   }
 
-  @Post('upgrade/:plan/stripe')
-  @ApiOperation({ summary: 'Upgrade subscription plan via Stripe checkout' })
-  async upgradePlanStripe(@Param('plan') plan: string, @GetUser() user: any) {
-    const normalizedPlan = this.normalizePlan(plan);
-
-    const successUrl = `${process.env.FRONTEND_URL}/subscription-success`;
-    const cancelUrl = `${process.env.FRONTEND_URL}/subscription-cancel`;
-
-    const url = await this.stripeService.createTestCheckoutSession(
-      normalizedPlan,
-      successUrl,
-      cancelUrl,
-    );
-
-    return { url };
-  }
+  // --------------------------
+  // GET : Quotas
+  // --------------------------
 
   @Get('quota/clothes-detection')
   @ApiOperation({ summary: 'Check if user can detect clothes' })
@@ -107,35 +210,5 @@ export class SubscriptionsController {
   @ApiOperation({ summary: 'Check if user can sell items in store' })
   async canSell(@GetUser() user: any) {
     return this.service.canSellItem(user.id);
-  }
-
-  @Get('plans')
-  @ApiOperation({ summary: 'Get all available subscription plans' })
-  async getPlans() {
-    return {
-      plans: [
-        {
-          id: SubscriptionPlan.FREE,
-          name: 'Free Pack',
-          price: 0,
-          features: { clothesDetection: 5, outfitSuggestions: 3, storeSelling: 3 },
-          color: '#9CA3AF',
-        },
-        {
-          id: SubscriptionPlan.PREMIUM,
-          name: 'Premium',
-          price: 9.99,
-          features: { clothesDetection: 'unlimited', outfitSuggestions: 'unlimited', storeSelling: 3 },
-          color: '#CA3C66',
-        },
-        {
-          id: SubscriptionPlan.PRO_SELLER,
-          name: 'Pro Seller',
-          price: 29.99,
-          features: { clothesDetection: 'unlimited', outfitSuggestions: 'unlimited', storeSelling: 'unlimited' },
-          color: '#4AA3A2',
-        },
-      ],
-    };
   }
 }
