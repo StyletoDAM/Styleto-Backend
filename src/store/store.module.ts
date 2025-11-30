@@ -5,13 +5,16 @@ import { StoreController } from './store.controller';
 import { Store, StoreSchema } from './schemas/store.schema';
 import { Clothes, ClothesSchema } from '../clothes/schemas/clothes.schema';
 import { UserModule } from '../user/user.module';
-import { SubscriptionsModule } from '../subscriptions/subscriptions.module'; // ✨ NOUVEAU
+import { SubscriptionsModule } from '../subscriptions/subscriptions.module'; 
+import { Order, OrderSchema } from 'src/orders/schemas/order.schema';
 
 @Module({
   imports: [
     MongooseModule.forFeature([
       { name: Store.name, schema: StoreSchema },
       { name: Clothes.name, schema: ClothesSchema },
+            { name: Order.name, schema: OrderSchema },
+
     ]),
     forwardRef(() => UserModule),
     SubscriptionsModule, // ✨ NOUVEAU

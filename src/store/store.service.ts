@@ -14,7 +14,10 @@ import Stripe from 'stripe';
 import { ConfigService } from '@nestjs/config';
 import { forwardRef, Inject } from '@nestjs/common';
 import { UserService } from '../user/user.service';
-import { SubscriptionsService } from '../subscriptions/subscriptions.service'; // ✨ NOUVEAU
+import { SubscriptionsService } from '../subscriptions/subscriptions.service';
+import { ConfirmPurchaseDto } from './dto/confirm-purchase.dto';
+
+import { Order, OrderDocument } from '../orders/schemas/order.schema';
 
 @Injectable()
 export class StoreService {
@@ -23,9 +26,10 @@ export class StoreService {
   constructor(
     @InjectModel(Store.name) private storeModel: Model<StoreDocument>,
     @InjectModel(Clothes.name) private clothesModel: Model<ClothesDocument>,
+    @InjectModel(Order.name) private orderModel: Model<OrderDocument>, 
     private configService: ConfigService,
     @Inject(forwardRef(() => UserService)) private userService: UserService,
-    private subscriptionsService: SubscriptionsService, // ✨ NOUVEAU
+    private subscriptionsService: SubscriptionsService,
   ) {
     const stripeKey = this.configService.get<string>('STRIPE_SECRET_KEY');
     if (!stripeKey) {
@@ -40,7 +44,6 @@ export class StoreService {
     return Types.ObjectId.isValid(id);
   }
 
-  // Vérifie que le vêtement existe ET appartient à l'utilisateur
   private async verifyClothesOwnership(clothesId: Types.ObjectId, userId: string) {
     const clothes = await this.clothesModel.findOne({
       _id: clothesId,
@@ -52,13 +55,11 @@ export class StoreService {
     }
   }
 
-  // ✨ MODIFIÉ : CREATE avec vérification quota
   async create(dto: CreateStoreDto, userId: string): Promise<Store> {
     if (!this.isValidId(userId) || !this.isValidId(dto.clothesId.toString())) {
       throw new BadRequestException('Invalid ID format');
     }
 
-    // ✨ NOUVEAU : Vérifier le quota AVANT de créer
     const quotaCheck = await this.subscriptionsService.canSellItem(userId);
 
     if (!quotaCheck.allowed) {
@@ -75,14 +76,11 @@ export class StoreService {
     });
 
     const saved = await storeItem.save();
-
-    // ✨ NOUVEAU : Incrémenter le compteur APRÈS la création réussie
     await this.subscriptionsService.incrementItemSold(userId);
 
     return saved;
   }
 
-  // FIND ALL
   async findAll(): Promise<Store[]> {
     return this.storeModel
       .find()
@@ -91,7 +89,6 @@ export class StoreService {
       .exec();
   }
 
-  // FIND BY USER ID
   async findByUserId(userId: string): Promise<Store[]> {
     if (!this.isValidId(userId)) {
       throw new BadRequestException('Invalid user ID');
@@ -104,7 +101,6 @@ export class StoreService {
       .exec();
   }
 
-  // FIND ONE
   async findOne(id: string): Promise<Store> {
     if (!this.isValidId(id)) {
       throw new BadRequestException('Invalid store item ID');
@@ -123,7 +119,6 @@ export class StoreService {
     return item;
   }
 
-  // UPDATE
   async update(id: string, dto: UpdateStoreDto, userId: string): Promise<Store> {
     if (!this.isValidId(id)) {
       throw new BadRequestException('Invalid store item ID');
@@ -159,7 +154,6 @@ export class StoreService {
     return updated;
   }
 
-  // DELETE
   async remove(id: string, userId: string): Promise<void> {
     if (!this.isValidId(id)) {
       throw new BadRequestException('Invalid store item ID');
@@ -177,7 +171,6 @@ export class StoreService {
     }
   }
 
-  // Créer un payment intent
   async createPaymentIntent(amount: number, currency?: string): Promise<string> {
     const finalCurrency = currency || this.configService.get<string>('STRIPE_CURRENCY', 'usd');
     
@@ -197,63 +190,107 @@ export class StoreService {
     return paymentIntent.client_secret;
   }
 
-  // Confirmer paiement et update balance
-  async confirmPurchase(storeItemId: string, paymentIntentId: string, buyerId: string): Promise<Store> {
+  async confirmPurchase(
+    storeItemId: string,
+    dto: ConfirmPurchaseDto,
+    buyerId: string,
+  ): Promise<Store> {
     const item = await this.storeModel.findById(storeItemId).exec();
     
     if (!item) {
-      throw new NotFoundException('Store item not found');
+      throw new NotFoundException('Article non trouvé');
     }
 
     if (item.status === 'sold') {
-      throw new BadRequestException('This item is already sold');
+      throw new BadRequestException('Cet article est déjà vendu');
     }
 
     const sellerId = item.userId.toString();
 
     if (sellerId === buyerId) {
-      throw new BadRequestException('You cannot buy your own item');
+      throw new BadRequestException('Vous ne pouvez pas acheter votre propre article');
     }
 
-    const isDevelopment = this.configService.get<string>('NODE_ENV') === 'development';
-    
-    if (!isDevelopment) {
-      const paymentIntent = await this.stripe.paymentIntents.retrieve(paymentIntentId);
-      
-      if (paymentIntent.status !== 'succeeded') {
-        throw new BadRequestException(
-          `Payment not succeeded. Current status: ${paymentIntent.status}`
-        );
+    const amountCents = Math.round(item.price * 100);
+
+    // PAIEMENT PAR BALANCE
+    if (dto.paymentMethod === 'balance') {
+      if (dto.paymentIntentId) {
+        throw new BadRequestException('paymentIntentId ne doit pas être fourni pour le paiement par balance');
       }
 
-      const expectedAmount = Math.round(item.price * 100);
-      if (paymentIntent.amount !== expectedAmount) {
-        throw new BadRequestException('Payment amount mismatch');
+      const buyer = await this.userService.findById(buyerId);
+      if (!buyer || (buyer.balance || 0) < amountCents) {
+        throw new BadRequestException('Solde insuffisant');
+      }
+
+      await this.userService.subtractFromBalance(buyerId, amountCents);
+    }
+
+    // PAIEMENT PAR STRIPE
+    else if (dto.paymentMethod === 'stripe') {
+      if (!dto.paymentIntentId) {
+        throw new BadRequestException('paymentIntentId est requis pour Stripe');
+      }
+
+      const isDevelopment = this.configService.get<string>('NODE_ENV') === 'development';
+
+      if (!isDevelopment) {
+        const paymentIntent = await this.stripe.paymentIntents.retrieve(dto.paymentIntentId);
+
+        if (paymentIntent.status !== 'succeeded') {
+          throw new BadRequestException(`Paiement non réussi. Statut: ${paymentIntent.status}`);
+        }
+
+        if (paymentIntent.amount !== amountCents) {
+          throw new BadRequestException('Montant du paiement incorrect');
+        }
+      } else {
+        console.log('[DEV MODE] Stripe verification skipped');
       }
     } else {
-      console.log(`[DEV MODE] Skipping Stripe verification for payment: ${paymentIntentId}`);
-      console.log(`[DEV MODE] Item price: ${item.price}, Seller ID: ${sellerId}`);
+      throw new BadRequestException('Méthode de paiement invalide');
     }
 
-    await this.userService.addToBalance(sellerId, item.price);
+    // CRÉDIT VENDEUR
+    await this.userService.addToBalance(sellerId, amountCents);
 
+    // MARQUER COMME VENDU
     const updatedItem = await this.storeModel
       .findByIdAndUpdate(
         storeItemId,
-        { 
+        {
           status: 'sold',
-          soldAt: new Date(), 
+          soldAt: new Date(),
           buyerId: new Types.ObjectId(buyerId),
-          stripePaymentIntentId: paymentIntentId,
+          stripePaymentIntentId: dto.paymentMethod === 'stripe' ? dto.paymentIntentId : null,
+          paymentMethod: dto.paymentMethod,
         },
-        { new: true }
+        { new: true },
       )
       .populate('userId', '-password -__v')
       .populate('clothesId')
       .exec();
 
     if (!updatedItem) {
-      throw new NotFoundException('Failed to update store item');
+      throw new NotFoundException("Erreur lors de la mise à jour de l'article");
+    }
+
+    // AJOUT CRITIQUE : CRÉER L'ORDRE
+    try {
+      const newOrder = new this.orderModel({
+        clothesId: item.clothesId,
+        userId: new Types.ObjectId(buyerId),
+        price: item.price,
+        orderDate: new Date(),
+      });
+
+      await newOrder.save();
+      console.log(`✅ Order created for buyer ${buyerId}, item ${storeItemId}`);
+    } catch (error) {
+      console.error('Failed to create order:', error);
+      // Ne pas bloquer la transaction si la création d'ordre échoue
+      // mais logger l'erreur pour investigation
     }
 
     return updatedItem;

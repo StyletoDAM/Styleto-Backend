@@ -210,6 +210,33 @@ export class UserService {
     password: undefined,
   } as SafeUser;
 }
+async subtractFromBalance(userId: string, amountCents: number): Promise<SafeUser> {
+  if (amountCents <= 0) {
+    throw new BadRequestException('Le montant doit être positif');
+  }
+
+  const user = await this.userModel.findById(userId).exec();
+  if (!user) {
+    throw new NotFoundException('Utilisateur introuvable');
+  }
+
+  if ((user.balance || 0) < amountCents) {
+    throw new BadRequestException('Solde insuffisant');
+  }
+
+  user.balance -= amountCents;
+  await user.save();
+
+  const plain = user.toObject({ getters: true });
+
+  return {
+    ...plain,
+    id: user.id,
+    _id: undefined,
+    __v: undefined,
+    password: undefined,
+  } as SafeUser;
+}
 
   
 }

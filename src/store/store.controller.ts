@@ -97,18 +97,18 @@ async createPaymentIntent(@Body() body: CreatePaymentIntentDto): Promise<{ clien
 }
 
 @Post('purchase/:id')
-@ApiOperation({ summary: 'Confirmer achat et update balance' })
-@ApiBody({ type: ConfirmPurchaseDto })  // Ajoutez ça
+@ApiOperation({ summary: 'Confirmer achat (Stripe ou Balance)' })
+@ApiBody({ type: ConfirmPurchaseDto })
 async confirmPurchase(
   @Param('id') storeItemId: string,
-  @Body() body: ConfirmPurchaseDto,
+  @Body() dto: ConfirmPurchaseDto,
   @GetUser() user: any,
 ): Promise<Store> {
-  return this.storeService.confirmPurchase(storeItemId, body.paymentIntentId, user.id);
+  return this.storeService.confirmPurchase(storeItemId, dto, user.id);
 }
 
 // ✅ NOUVEAU : Endpoint pour tester l'achat en DEV
-@Post('test-purchase')
+/*@Post('test-purchase')
 @ApiOperation({ summary: '[DEV ONLY] Tester un achat sans Stripe réel' })
 @ApiBody({ type: TestPurchaseDto })
 async testPurchase(
@@ -135,5 +135,5 @@ async testPurchase(
     item,
     message: `Test purchase successful! Seller balance updated with ${body.amount} USD`,
   };
-}
+}*/
 }

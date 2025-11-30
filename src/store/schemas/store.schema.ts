@@ -20,7 +20,6 @@ export class Store {
   @Prop({ enum: ['available', 'sold'], default: 'available' })
   status: 'available' | 'sold';
 
-  // ✅ NOUVEAUX CHAMPS
   @Prop({ type: Types.ObjectId, ref: 'User', required: false })
   buyerId?: Types.ObjectId;  // Qui a acheté
 
@@ -29,6 +28,13 @@ export class Store {
 
   @Prop({ type: String, required: false })
   stripePaymentIntentId?: string;  // Référence Stripe
+
+  @Prop({ 
+    type: String, 
+    enum: ['stripe', 'balance'], 
+    required: false 
+  })
+  paymentMethod?: 'stripe' | 'balance';
 }
 
 export const StoreSchema = SchemaFactory.createForClass(Store);
