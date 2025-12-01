@@ -1,105 +1,75 @@
-# detect.py — VERSION FINALE OFFICIELLE 2025 (Mac M2 / TensorFlow 2.12.0)
-import argparse
+#!/usr/bin/env python3
+
 import sys
-import warnings
-warnings.filterwarnings("ignore")
-
-# Suppression des warnings TensorFlow (méthode officielle pour TF 2.12)
+import argparse
+import requests
 import os
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+from dotenv import load_dotenv
 
-import tensorflow as tf
-from tensorflow.keras.models import load_model
+# Charger variables d'environnement
+load_dotenv()
 
-from ultralytics import YOLO
-from PIL import Image
-import numpy as np
-from sklearn.cluster import KMeans
+API_KEY = os.getenv("REMOVE_BG_API_KEY")
 
-# === CHARGEMENT DES MODÈLES ===
-print("Chargement du modèle YOLO...", file=sys.stderr)
-yolo_model = YOLO("best.pt")
+def remove_background(input_path, output_path):
+    try:
+        if not API_KEY:
+            print("❌ Erreur : Clé API manquante. Ajoute-la dans le fichier .env", file=sys.stderr)
+            return False
+        
+        if not os.path.exists(input_path):
+            print(f"❌ Erreur : Fichier introuvable : {input_path}", file=sys.stderr)
+            return False
+        
+        print(f"🔄 Suppression du background pour : {input_path}")
+        
+        with open(input_path, 'rb') as image_file:
+            response = requests.post(
+                'https://api.remove.bg/v1.0/removebg',
+                files={'image_file': image_file},
+                data={'size': 'auto'},
+                headers={'X-Api-Key': API_KEY},
+                timeout=30
+            )
+        
+        if response.status_code == requests.codes.ok:
+            with open(output_path, 'wb') as out_file:
+                out_file.write(response.content)
+            
+            print(f"✅ Background supprimé : {output_path}")
+            
+            credits_remaining = response.headers.get('X-Credits-Remaining', 'N/A')
+            print(f"💰 Crédits restants : {credits_remaining}")
+            
+            return True
+        else:
+            error_data = response.json()
+            errors = error_data.get('errors', [])
+            if errors:
+                error_title = errors[0].get('title', 'Erreur inconnue')
+                error_detail = errors[0].get('detail', '')
+                print(f"❌ Erreur API : {error_title}", file=sys.stderr)
+                if error_detail:
+                    print(f"   Détail : {error_detail}", file=sys.stderr)
+            else:
+                print(f"❌ Erreur HTTP {response.status_code}", file=sys.stderr)
+            
+            return False
 
-print("Chargement du modèle style/saison...", file=sys.stderr)
-style_model = load_model("style_season_model.h5", compile=False)
+    except requests.exceptions.Timeout:
+        print("❌ Timeout", file=sys.stderr)
+        return False
+    except Exception as e:
+        print(f"❌ Erreur : {str(e)}", file=sys.stderr)
+        return False
 
-# === FONCTION COULEUR DOMINANTE ===
-def get_dominant_color(crop):
-    img_array = np.array(crop).reshape(-1, 3)
-    # Supprime le noir pur (fond souvent présent)
-    img_array = img_array[np.any(img_array != [0, 0, 0], axis=1)]
-    if len(img_array) == 0:
-        return "#808080"  # Gris par défaut
-    kmeans = KMeans(n_clusters=3, random_state=0, n_init=10)
-    kmeans.fit(img_array)
-    dominant = kmeans.cluster_centers_[0]
-    return '#{:02x}{:02x}{:02x}'.format(int(dominant[0]), int(dominant[1]), int(dominant[2]))
 
-# === ARGUMENTS ===
-parser = argparse.ArgumentParser()
-parser.add_argument('--image', required=True, help='Chemin vers l\'image')
-args = parser.parse_args()
-image_path = args.image
-
-try:
-    # Ouverture et vérification
-    img = Image.open(image_path).convert('RGB')
-    w, h = img.size
-
-    # Détection YOLO
-    results = yolo_model(image_path, verbose=False)[0]
-    boxes = results.boxes
-
-    if not boxes or len(boxes) == 0:
-        print("Aucun vêtement détecté.")
-        sys.stdout.flush()
-        sys.exit(0)
-
-    # Meilleure détection (confiance max)
-    best_idx = boxes.conf.argmax()
-    x1, y1, x2, y2 = map(int, boxes.xyxy[best_idx])
-    x1, y1 = max(0, x1), max(0, y1)
-    x2, y2 = min(w, x2), min(h, y2)
-
-    if x2 <= x1 or y2 <= y1:
-        print("Boîte invalide.")
-        sys.stdout.flush()
-        sys.exit(0)
-
-    # Crop + debug (optionnel)
-    cropped = img.crop((x1, y1, x2, y2))
-    cropped.save("debug_cropped.jpg", quality=95)
-    img.save("debug_full.jpg", quality=95)
-
-    # Couleur dominante
-    hex_color = get_dominant_color(cropped)
-
-    # Prédiction style + saison
-    resized = cropped.resize((224, 224))
-    arr = np.array(resized) / 255.0
-    arr = np.expand_dims(arr, axis=0)  # Shape (1, 224, 224, 3)
-
-    style_pred, season_pred = style_model.predict(arr, verbose=0)
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description='Supprime le background d\'une image via API remove.bg')
+    parser.add_argument('--input', required=True)
+    parser.add_argument('--output', required=True)
     
-    styles = ["casual", "formal", "sport", "chic"]
-    seasons = ["summer", "winter", "fall", "spring"]
-
-    style = styles[np.argmax(style_pred)]
-    season = seasons[np.argmax(season_pred)]
-    type_vetement = results.names[int(boxes.cls[best_idx])]
-
-    # === RÉSULTAT FINAL (exactement ce que ton backend renvoie à l'app) ===
-    print("Résultat final")
-    print("---------------------------")
-    print(f"Type du vêtement : {type_vetement}")
-    print(f"Couleur dominante : {hex_color.upper()}")
-    print(f"Style : {style}")
-    print(f"Saison : {season}")
-    print("---------------------------")
-
-    sys.stdout.flush()
-
-except Exception as e:
-    print(f"Erreur critique : {str(e)}")
-    sys.stdout.flush()
-    sys.exit(1)
+    args = parser.parse_args()
+    
+    success = remove_background(args.input, args.output)
+    sys.exit(0 if success else 1)

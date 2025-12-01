@@ -125,17 +125,17 @@ export class AuthService {
 
     const tempToken = await this.jwtService.signAsync(tempPayload, { expiresIn: '7d' });
 
-    const emailSubject = 'Votre code Labasni';
+    const emailSubject = 'Votre code Styleto';
     const emailText = [
       `Bonjour ${signupDto.fullName},`,
       '',
-      'Merci de rejoindre Labasni.',
+      'Merci de rejoindre Styleto.',
       `Votre code de vérification est : ${verificationCode}`,
       '',
       'Ce code expirera dans 10 minutes.',
       '',
       'À très vite,',
-      "L'équipe Labasni",
+      "L'équipe Styleto",
     ].join('\n');
 
     const emailHtml = `
@@ -198,10 +198,10 @@ export class AuthService {
         </head>
         <body>
           <div class="container">
-            <div class="logo">Labasni</div>
+            <div class="logo">Styleto</div>
             <p class="greeting">Bonjour ${signupDto.fullName},</p>
             <p class="info">
-              Merci de confirmer votre adresse e-mail pour finaliser la création de votre compte Labasni.
+              Merci de confirmer votre adresse e-mail pour finaliser la création de votre compte Styleto.
               Utilisez le code ci-dessous dans les 10 prochaines minutes :
             </p>
             <div class="code-box">${verificationCode}</div>
@@ -210,10 +210,10 @@ export class AuthService {
             </p>
             <p class="info">
               À très vite,<br/>
-              L'équipe Labasni
+              L'équipe Styleto
             </p>
             <div class="footer">
-              © ${new Date().getFullYear()} Labasni. Tous droits réservés.
+              © ${new Date().getFullYear()} Styleto. Tous droits réservés.
             </div>
           </div>
         </body>

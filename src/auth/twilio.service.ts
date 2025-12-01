@@ -35,7 +35,7 @@ export class TwilioService {
       await this.client.messages.create({
         from: this.fromNumber,
         to,
-        body: `Labasni : votre code de vérification est ${code}. Il expire dans 10 minutes.`,
+        body: `Styleto : votre code de vérification est ${code}. Il expire dans 10 minutes.`,
       });
     } catch (error) {
       this.logger.error('Échec envoi SMS Twilio', error as any);

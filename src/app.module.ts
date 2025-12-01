@@ -8,9 +8,7 @@ import { AppService } from './app.service';
 import { UserModule } from './user/user.module';
 import { ClothesModule } from './clothes/clothes.module';
 import { OutfitsModule } from './outfits/outfits.module';
-import { EventsModule } from './events/events.module';
 import { StoreModule } from './store/store.module';
-import { SuitcasesModule } from './suitcases/suitcases.module';
 import { AvatarsModule } from './avatars/avatars.module';
 import { CloudinaryModule } from './cloudinary/cloudinary.module';
 import { ConfigModule } from '@nestjs/config';
@@ -74,9 +72,7 @@ import { ClothesService } from './clothes/clothes.service';
     AuthModule,
     ClothesModule,
     OutfitsModule,
-    EventsModule,
     StoreModule,
-    SuitcasesModule,
     AvatarsModule,
     CloudinaryModule,
     ChatModule,
