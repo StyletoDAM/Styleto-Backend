@@ -24,6 +24,7 @@ async function bootstrap() {
     .setDescription('API pour Labasni - Auth, IA, Style')
     .setVersion('1.0')
     .addTag('Auth')
+    .addTag('Recommendations')
     .addBearerAuth()
     .build();
 

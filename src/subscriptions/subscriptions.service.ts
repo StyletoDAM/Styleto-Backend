@@ -12,6 +12,7 @@ import {
   SubscriptionDocument,
   SubscriptionPlan,
   PLAN_LIMITS,
+  MonthlyUsage,
 } from './schemas/subscription.schema';
 
 export interface QuotaCheckResult {
@@ -66,8 +67,42 @@ export class SubscriptionsService {
   private async checkAndResetMonthlyUsage(sub: SubscriptionDocument) {
     const currentMonth = new Date().toISOString().slice(0, 7);
 
+    // S'assurer que currentUsage existe et a un month
+    if (!sub.currentUsage) {
+      sub.currentUsage = {
+        month: currentMonth,
+        clothesDetectionUsed: 0,
+        outfitSuggestionsUsed: 0,
+        itemsSoldCount: 0,
+        lastReset: new Date(),
+      };
+      await sub.save();
+      return;
+    }
+
+    // Si le month n'existe pas, l'initialiser
+    if (!sub.currentUsage.month) {
+      sub.currentUsage.month = currentMonth;
+      sub.currentUsage.clothesDetectionUsed = sub.currentUsage.clothesDetectionUsed || 0;
+      sub.currentUsage.outfitSuggestionsUsed = sub.currentUsage.outfitSuggestionsUsed || 0;
+      sub.currentUsage.itemsSoldCount = sub.currentUsage.itemsSoldCount || 0;
+      sub.currentUsage.lastReset = sub.currentUsage.lastReset || new Date();
+      await sub.save();
+      return;
+    }
+
+    // Si on change de mois, sauvegarder l'ancien usage dans l'historique
     if (sub.currentUsage.month !== currentMonth) {
-      sub.usageHistory.push({ ...sub.currentUsage });
+      // S'assurer que l'objet à pousser a bien tous les champs requis
+      const usageToSave: MonthlyUsage = {
+        month: sub.currentUsage.month, // Garantir que month existe
+        clothesDetectionUsed: sub.currentUsage.clothesDetectionUsed || 0,
+        outfitSuggestionsUsed: sub.currentUsage.outfitSuggestionsUsed || 0,
+        itemsSoldCount: sub.currentUsage.itemsSoldCount || 0,
+        lastReset: sub.currentUsage.lastReset || new Date(),
+      };
+      
+      sub.usageHistory.push(usageToSave);
 
       sub.currentUsage = {
         month: currentMonth,
