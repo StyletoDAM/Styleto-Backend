@@ -258,4 +258,41 @@ export class ClothesService {
 
     return result.deletedCount > 0;
   }
+  //Mettre à jour le feedback (acceptedCount / rejectedCount)
+  async updateFeedback(clotheId: string, accepted: boolean, userId: string): Promise<Clothes> {
+    if (!Types.ObjectId.isValid(clotheId)) {
+      throw new ForbiddenException('Invalid clothe ID format');
+    }
+
+    // Vérifier que le vêtement appartient à l'utilisateur
+    const clothe = await this.clothesModel.findOne({
+      _id: new Types.ObjectId(clotheId),
+      userId: new Types.ObjectId(userId),
+    }).exec();
+
+    if (!clothe) {
+      throw new NotFoundException(
+        'Vêtement non trouvé ou vous n\'êtes pas autorisé à le modifier',
+      );
+    }
+
+    // Incrémenter le compteur approprié
+    const updateField = accepted ? 'acceptedCount' : 'rejectedCount';
+    
+    const updated = await this.clothesModel
+      .findByIdAndUpdate(
+        clotheId,
+        { $inc: { [updateField]: 1 } },
+        { new: true }
+      )
+      .exec();
+
+    if (!updated) {
+      throw new NotFoundException(`Clothe with ID ${clotheId} not found`);
+    }
+
+    console.log(`✅ ${updateField} incrémenté pour ${clotheId}: ${updated[updateField]}`);
+    
+    return updated;
+  }
 }

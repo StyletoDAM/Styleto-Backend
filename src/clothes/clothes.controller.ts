@@ -203,4 +203,31 @@ export class ClothController {
 
     return;
   }
+  // Incrémenter acceptedCount ou rejectedCount
+  @Patch(':id/feedback')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Incrémenter acceptedCount ou rejectedCount d\'un vêtement' })
+  @ApiParam({ name: 'id', description: 'ID du vêtement' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        accepted: { type: 'boolean', description: 'true pour accepter, false pour rejeter' }
+      },
+      required: ['accepted']
+    }
+  })
+  @ApiResponse({ status: 200, description: 'Compteur mis à jour avec succès' })
+  @ApiBearerAuth()
+  async updateFeedback(
+    @Param('id') id: string,
+    @Body('accepted') accepted: boolean,
+    @GetUser() user: any,
+  ) {
+    if (!user?.id) {
+      throw new UnauthorizedException('Utilisateur non authentifié');
+    }
+
+    return await this.clothService.updateFeedback(id, accepted, user.id);
+  }
 }
