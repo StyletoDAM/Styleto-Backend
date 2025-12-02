@@ -142,7 +142,12 @@ export class OutfitsService {
       throw new NotFoundException(`Outfit with ID ${id} not found`);
     }
 
-    if (outfit.userId.toString() !== userId) {
+    // ✨ Correction : Comparer les ObjectIds correctement (normaliser les deux en ObjectId)
+    const outfitUserId = (outfit.userId as Types.ObjectId).toString();
+    const requestUserId = new Types.ObjectId(userId).toString();
+    
+    if (outfitUserId !== requestUserId) {
+      console.error(`❌ [Outfits] Tentative de suppression non autorisée. Outfit userId: ${outfitUserId}, Request userId: ${requestUserId}`);
       throw new ForbiddenException('Vous ne pouvez pas supprimer cet outfit');
     }
 

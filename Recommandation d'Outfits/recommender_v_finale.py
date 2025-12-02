@@ -330,26 +330,35 @@ def recommend_outfit(user_preference, simulated_weather, return_explanation=True
     # ============================
     # ÉTAPE 1 : FILTRER (La correction CLÉ)
     # ============================
-    # On ne garde que les articles qui matchent le STYLE et la SAISON
-    # Si pas de match exact pour la saison, on accepte "all" ou toutes saisons
+    # 🌤️ PRIORITÉ: On filtre d'abord par STYLE et SAISON (saison déterminée par la météo)
+    # La saison est calculée à partir de la température météo (get_season_from_weather)
+    # Si pas de match exact pour la saison, on accepte "all" ou toutes saisons (fallback)
     
-    safe_print("\n--- 1. Filtrage des candidats ---")
+    safe_print("\n--- 1. Filtrage des candidats (Style + Saison météo) ---")
 
     def matches_season(item_season, target_season):
-        """ Vérifie si la saison de l'item correspond à la saison cible. """
+        """ 
+        Vérifie si la saison de l'item correspond à la saison cible (déterminée par la météo).
+        Accepte les items avec "all" saison car ils peuvent être utilisés toute l'année.
+        """
         item_season = item_season.lower() if item_season else ""
         target_season = target_season.lower()
-        # Accepte si correspond exactement, ou si "all"/"toutes"/"all seasons"
-        return (item_season == target_season or 
-                item_season in ["all", "toutes", "all seasons", "toutes saisons", ""])
+        # Accepte toujours si l'item a "all" (peut être utilisé quelle que soit la saison météo)
+        if item_season in ["all", "toutes", "all seasons", "toutes saisons", ""]:
+            return True
+        # Sinon, vérifier la correspondance exacte avec la saison météo
+        return item_season == target_season
 
+    # 🌤️ FILTRAGE PAR SAISON (par défaut, basé sur la météo)
+    # On filtre d'abord par style ET saison (la saison est déterminée par la météo)
+    # La fonction matches_season accepte aussi les items avec "all" saison
     tops_candidats = [
         item for item in clothes 
         if item.get("category", "").lower() == "top" 
         and item.get("style", "").lower() == pref 
         and matches_season(item.get("season", ""), season)
     ]
-    safe_print(f"  -> {len(tops_candidats)} 'top' trouvés pour '{pref}' et '{season}'.")
+    safe_print(f"  -> {len(tops_candidats)} 'top' trouvés pour '{pref}' et saison '{season}'.")
 
     bottoms_candidats = [
         item for item in clothes 
@@ -357,7 +366,7 @@ def recommend_outfit(user_preference, simulated_weather, return_explanation=True
         and item.get("style", "").lower() == pref 
         and matches_season(item.get("season", ""), season)
     ]
-    safe_print(f"  -> {len(bottoms_candidats)} 'bottom' trouvés.")
+    safe_print(f"  -> {len(bottoms_candidats)} 'bottom' trouvés pour '{pref}' et saison '{season}'.")
 
     footwear_candidats = [
         item for item in clothes 
@@ -365,78 +374,60 @@ def recommend_outfit(user_preference, simulated_weather, return_explanation=True
         and item.get("style", "").lower() == pref 
         and matches_season(item.get("season", ""), season)
     ]
-    safe_print(f"  -> {len(footwear_candidats)} 'footwear' trouvés.")
+    safe_print(f"  -> {len(footwear_candidats)} 'footwear' trouvés pour '{pref}' et saison '{season}'.")
     
-    # Si pas assez de candidats avec le style exact, assouplir le filtrage du style
+    # ⚠️ ASSOUPLISSEMENT: Seulement si pas assez de candidats avec la saison (météo)
+    # On essaie d'abord avec les items "all" saison, puis seulement si vraiment rien, on enlève le filtre saison
     if len(tops_candidats) == 0 or len(bottoms_candidats) == 0 or len(footwear_candidats) == 0:
-        safe_print("  ⚠️ Pas assez de candidats avec le style exact, assouplissement du filtrage...", file=sys.stderr)
+        safe_print(f"  ⚠️ Pas assez de candidats avec la saison '{season}' (météo), élargissement progressif...", file=sys.stderr)
         
+        # Pour les tops
         if len(tops_candidats) == 0:
-            # Essayer d'abord sans le style mais avec la saison
+            # Étape 1: Essayer d'abord avec les items "all" saison (si pas déjà inclus)
+            # Note: matches_season accepte déjà "all", donc on passe directement à l'étape 2
+            # Étape 2: Si vraiment rien, accepter tous les tops avec le style (sans filtre saison)
             tops_candidats = [
                 item for item in clothes 
                 if item.get("category", "").lower() == "top" 
-                and matches_season(item.get("season", ""), season)
+                and item.get("style", "").lower() == pref
             ]
-            # Si toujours rien, enlever aussi le filtre de saison
-            if len(tops_candidats) == 0:
-                tops_candidats = [
-                    item for item in clothes 
-                    if item.get("category", "").lower() == "top"
-                ]
-                safe_print(f"  -> {len(tops_candidats)} 'top' trouvés (style et saison assouplis).", file=sys.stderr)
-            else:
-                safe_print(f"  -> {len(tops_candidats)} 'top' trouvés (style assoupli).", file=sys.stderr)
+            safe_print(f"  -> {len(tops_candidats)} 'top' trouvés pour '{pref}' (saison assouplie - fallback).", file=sys.stderr)
         
+        # Pour les bottoms
         if len(bottoms_candidats) == 0:
-            # Chercher d'abord les bottoms classiques avec la saison
             bottoms_candidats = [
                 item for item in clothes 
                 if item.get("category", "").lower() == "bottom" 
-                and matches_season(item.get("season", ""), season)
+                and item.get("style", "").lower() == pref
             ]
-            # Si toujours rien, enlever le filtre de saison
-            if len(bottoms_candidats) == 0:
-                bottoms_candidats = [
-                    item for item in clothes 
-                    if item.get("category", "").lower() == "bottom"
-                ]
-            # Si toujours rien, utiliser les tops comme bottom (fallback)
-            if len(bottoms_candidats) == 0:
-                # Chercher tous les tops disponibles
-                potential_bottoms = [
-                    item for item in clothes 
-                    if item.get("category", "").lower() == "top"
-                ]
-                # Si on a des tops, utiliser un top différent comme bottom
-                if len(tops_candidats) > 0 and len(potential_bottoms) > 1:
-                    # Prendre un item qui n'est pas le premier top sélectionné
-                    bottoms_candidats = [item for item in potential_bottoms if item.get('id') != tops_candidats[0].get('id')][:1]
-                    if len(bottoms_candidats) > 0:
-                        safe_print(f"  -> {len(bottoms_candidats)} 'bottom' trouvés (utilisant un autre top comme fallback).", file=sys.stderr)
-                elif len(potential_bottoms) > 0:
-                    # Si on n'a qu'un seul item disponible, l'utiliser quand même (cas extrême)
-                    bottoms_candidats = potential_bottoms[:1]
-                    safe_print(f"  -> {len(bottoms_candidats)} 'bottom' trouvés (utilisant le même top comme fallback - cas extrême).", file=sys.stderr)
-            else:
-                safe_print(f"  -> {len(bottoms_candidats)} 'bottom' trouvés (style assoupli).", file=sys.stderr)
+            safe_print(f"  -> {len(bottoms_candidats)} 'bottom' trouvés pour '{pref}' (saison assouplie - fallback).", file=sys.stderr)
         
+        # Pour les footwear
         if len(footwear_candidats) == 0:
-            # Essayer d'abord sans le style mais avec la saison
             footwear_candidats = [
                 item for item in clothes 
                 if item.get("category", "").lower() in ["footwear", "shoes", "shoe"] 
-                and matches_season(item.get("season", ""), season)
+                and item.get("style", "").lower() == pref
             ]
-            # Si toujours rien, enlever aussi le filtre de saison
-            if len(footwear_candidats) == 0:
-                footwear_candidats = [
-                    item for item in clothes 
-                    if item.get("category", "").lower() in ["footwear", "shoes", "shoe"]
-                ]
-                safe_print(f"  -> {len(footwear_candidats)} 'footwear' trouvés (style et saison assouplis).", file=sys.stderr)
-            else:
-                safe_print(f"  -> {len(footwear_candidats)} 'footwear' trouvés (style assoupli).", file=sys.stderr)
+            safe_print(f"  -> {len(footwear_candidats)} 'footwear' trouvés pour '{pref}' (saison assouplie - fallback).", file=sys.stderr)
+    
+    # ✨ NOUVEAU: Si pas assez de candidats avec le style exact, NE PAS assouplir - retourner None
+    # L'utilisateur veut un outfit COMPLET avec le style demandé, sinon rien
+    if len(tops_candidats) == 0 or len(bottoms_candidats) == 0 or len(footwear_candidats) == 0:
+        missing = []
+        if len(tops_candidats) == 0:
+            missing.append("top")
+        if len(bottoms_candidats) == 0:
+            missing.append("bottom")
+        if len(footwear_candidats) == 0:
+            missing.append("footwear")
+        
+        safe_print(f"  ❌ Pas assez de vêtements avec le style '{pref}' pour créer un outfit complet.", file=sys.stderr)
+        safe_print(f"  ❌ Catégories manquantes: {', '.join(missing)}", file=sys.stderr)
+        safe_print(f"  ℹ️ Vous avez besoin d'au moins un top, un bottom et des chaussures avec le style '{pref}'.", file=sys.stderr)
+        
+        # Retourner None pour indiquer qu'aucun outfit complet ne peut être généré
+        return None
 
     # ============================
     # ÉTAPE 2 : TRIER & SÉLECTIONNER (Le "Ranking" ML)
@@ -544,7 +535,7 @@ def explain_outfit(outfit, weather, season, pref, top, bottom, shoe, tops_candid
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Recommandation d\'outfit basée sur ML')
     parser.add_argument('--preference', type=str, default='casual',
-                       choices=['casual', 'formal', 'sport' ,'elegant','bohemian','vintage','modern'],
+                       choices=['casual', 'formal', 'sport'],
                        help='Style préféré de l\'utilisateur')
     parser.add_argument('--city', type=str, default='Tunis',
                        help='Ville pour la météo')
@@ -615,19 +606,59 @@ if __name__ == "__main__":
         result = recommend_outfit(args.preference, weather, return_explanation=True)
 
         if result and result.get("outfit"):
-            # Retourner en JSON pour que NestJS puisse le parser
-            output = {
-                "success": True,
-                "outfit": result["outfit"],
-                "weather": result["weather"],
-                "season": result["season"],
-                "preference": args.preference,
-                "explanation": result["explanation"]
-            }
-            # IMPORTANT: Écrire le JSON dans stdout (pas stderr)
-            print(json.dumps(output))
-            sys.stdout.flush()  # Forcer l'écriture immédiate
-            safe_print("\n✅ Recommandation terminée avec succès", file=sys.stderr)
+            # ✨ NOUVEAU: Vérifier que tous les vêtements ont le style demandé
+            top_id = result["outfit"]["top"]
+            bottom_id = result["outfit"]["bottom"]
+            footwear_id = result["outfit"]["footwear"]
+            
+            # Trouver les vêtements dans la liste
+            top_item = next((item for item in clothes if item.get("id") == top_id), None)
+            bottom_item = next((item for item in clothes if item.get("id") == bottom_id), None)
+            footwear_item = next((item for item in clothes if item.get("id") == footwear_id), None)
+            
+            pref_lower = args.preference.lower()
+            
+            # Vérifier que tous ont le style demandé
+            if (top_item and bottom_item and footwear_item and
+                top_item.get("style", "").lower() == pref_lower and
+                bottom_item.get("style", "").lower() == pref_lower and
+                footwear_item.get("style", "").lower() == pref_lower):
+                
+                # Retourner en JSON pour que NestJS puisse le parser
+                output = {
+                    "success": True,
+                    "outfit": result["outfit"],
+                    "weather": result["weather"],
+                    "season": result["season"],
+                    "preference": args.preference,
+                    "explanation": result["explanation"]
+                }
+                # IMPORTANT: Écrire le JSON dans stdout (pas stderr)
+                print(json.dumps(output))
+                sys.stdout.flush()  # Forcer l'écriture immédiate
+                safe_print("\n✅ Recommandation terminée avec succès", file=sys.stderr)
+            else:
+                # ✨ Si les styles ne correspondent pas, retourner une erreur
+                missing_styles = []
+                if not top_item or top_item.get("style", "").lower() != pref_lower:
+                    missing_styles.append("top")
+                if not bottom_item or bottom_item.get("style", "").lower() != pref_lower:
+                    missing_styles.append("bottom")
+                if not footwear_item or footwear_item.get("style", "").lower() != pref_lower:
+                    missing_styles.append("footwear")
+                
+                message = f"Impossible de créer un outfit complet avec le style '{args.preference}'. "
+                message += f"Catégories manquantes ou avec un style différent: {', '.join(missing_styles)}. "
+                message += f"Assurez-vous d'avoir au moins un top, un bottom et des chaussures avec le style '{args.preference}'."
+                
+                output = {
+                    "success": False,
+                    "message": message,
+                    "missing_categories": missing_styles
+                }
+                print(json.dumps(output))
+                sys.stdout.flush()
+                sys.exit(1)
         else:
             # Analyser pourquoi aucun outfit n'a été généré
             categories_found = set()
@@ -643,7 +674,7 @@ if __name__ == "__main__":
             if "footwear" not in categories_found and "shoes" not in categories_found:
                 missing.append("footwear (chaussures)")
             
-            # Analyser plus en détail pourquoi ça n'a pas fonctionné
+            # Analyser plus en détail pourquoi ça n'a  pas fonctionné
             tops_count = len([c for c in clothes if c.get("category", "").lower() == "top"])
             bottoms_count = len([c for c in clothes if c.get("category", "").lower() == "bottom"])
             footwear_count = len([c for c in clothes if c.get("category", "").lower() in ["footwear", "shoes", "shoe"]])

@@ -40,6 +40,9 @@ export class RecommendationsService {
       console.log(`   User ID: ${userId}`);
       console.log(`   Préférence: ${preference}`);
       console.log(`   Ville: ${city || 'Tunis'}`);
+      
+      // ✨ NOUVEAU: Normaliser la préférence pour correspondre aux styles des vêtements
+      const normalizedPreference = preference.toLowerCase().trim();
 
       // 1. Récupérer TOUS les vêtements de l'utilisateur depuis MongoDB
       const userClothes = await this.clothesModel
@@ -50,7 +53,7 @@ export class RecommendationsService {
 
       if (userClothes.length < 3) {
         throw new BadRequestException(
-          `Vous avez seulement ${userClothes.length} vêtement(s). Ajoutez-en au moins 3 pour une recommandation.`,
+          `You only have ${userClothes.length} item(s) in your wardrobe. Please add at least 3 items to get outfit recommendations.`,
         );
       }
 
@@ -61,6 +64,7 @@ export class RecommendationsService {
         
         // Mapper les catégories vers les catégories attendues par le script
         // NOTE: Les robes peuvent être utilisées comme "top" OU "bottom" selon les besoins
+        // ✨ IMPORTANT: Normaliser en minuscules pour gérer les majuscules (Pants, Jacket, Shoes, Tshirt)
         const categoryMap: { [key: string]: string } = {
           'tshirt': 'top',
           't-shirt': 'top',
@@ -68,8 +72,9 @@ export class RecommendationsService {
           'top': 'top',
           'robe': 'top', // On traite les robes comme des tops par défaut
           'dress': 'top',
+          'jacket': 'top', // ✨ NOUVEAU: Jacket = top
           'pantalon': 'bottom',
-          'pants': 'bottom',
+          'pants': 'bottom', // ✨ NOUVEAU: Pants = bottom
           'jean': 'bottom',
           'jeans': 'bottom',
           'bottom': 'bottom',
@@ -79,9 +84,17 @@ export class RecommendationsService {
           'sneakers': 'footwear',
           'chaussures': 'footwear',
         };
-        category = categoryMap[category] || category;
+        // ✨ Normaliser en minuscules d'abord, puis mapper
+        const normalizedCategory = category.toLowerCase();
+        category = categoryMap[normalizedCategory] || category;
+        
+        // ✨ NOUVEAU: Log pour déboguer le mapping des catégories
+        if (categoryMap[category] && categoryMap[category] !== category) {
+          console.log(`   🔄 Catégorie mappée: "${cloth.category}" → "${categoryMap[category]}" (vêtement ${cloth._id})`);
+        }
         
         // Normaliser la saison (français -> anglais)
+        // ✨ IMPORTANT: Garder "all" tel quel pour que le script Python puisse l'utiliser
         let season = cloth.season?.toLowerCase() || 'summer';
         const seasonMap: { [key: string]: string } = {
           'été': 'summer',
@@ -89,38 +102,236 @@ export class RecommendationsService {
           'hiver': 'winter',
           'automne': 'fall',
           'printemps': 'spring',
-          'all': 'summer', // "all" -> "summer" par défaut
-          'toutes': 'summer',
+          'all': 'all', // ✨ NOUVEAU: Garder "all" tel quel (pas "summer")
+          'toutes': 'all',
+          'toutes saisons': 'all',
+          'all seasons': 'all',
         };
         season = seasonMap[season] || season;
         
-        // Normaliser le style
-        let style = cloth.style?.toLowerCase() || 'casual';
+        // Normaliser le style - IMPORTANT: Garder le style original du vêtement
+        let style = cloth.style?.toLowerCase().trim() || 'casual';
+        
+        // ✨ NOUVEAU: Mapper les styles avec majuscules vers les styles attendus
+        // Si le style contient "formal" (peu importe la casse), utiliser "formal"
+        if (style.includes('formal')) {
+          style = 'formal';
+        } else if (style.includes('sport')) {
+          style = 'sport';
+        } else if (style.includes('casual')) {
+          style = 'casual';
+        } else if (style.includes('elegant')) {
+          style = 'elegant';
+        } else if (style.includes('bohemian')) {
+          style = 'bohemian';
+        } else if (style.includes('vintage')) {
+          style = 'vintage';
+        } else if (style.includes('modern')) {
+          style = 'modern';
+        }
         // Si le style est une catégorie (ex: "robe"), utiliser "casual" par défaut
-        if (['robe', 'dress', 'tshirt', 'pantalon', 'shoes'].includes(style)) {
+        else if (['robe', 'dress', 'tshirt', 'pantalon', 'shoes', 'top', 'bottom', 'footwear'].includes(style)) {
           style = 'casual';
         }
         
-        return {
+        // ✨ S'assurer que le style est valide (un des styles acceptés par le script Python)
+        const validStyles = ['casual', 'formal', 'sport', 'elegant', 'bohemian', 'vintage', 'modern'];
+        if (!validStyles.includes(style)) {
+          // Si le style n'est pas reconnu, utiliser "casual" par défaut
+          console.warn(`   ⚠️ Style non reconnu pour le vêtement ${cloth._id}: "${cloth.style}" → "casual"`);
+          style = 'casual';
+        }
+        
+        const clothData = {
           id: (cloth._id as Types.ObjectId).toString(),
           category: category,
           color: cloth.color?.toLowerCase() || 'unknown',
-          style: style,
+          style: style, // ✨ Style normalisé (formal, casual, sport, etc.)
           season: season,
           score: this.calculateScore(cloth.acceptedCount, cloth.rejectedCount),
           image: cloth.imageURL,
         };
+        
+        // ✨ Log pour déboguer la normalisation des styles
+        if (cloth.style && cloth.style.toLowerCase() !== style) {
+          console.log(`   🔄 Style normalisé: "${cloth.style}" → "${style}" (vêtement ${cloth._id})`);
+        }
+        
+        return clothData;
       });
 
       // 3. Préparer les données JSON pour stdin
       const clothesDataJson = JSON.stringify(clothesData);
       console.log(`   📦 ${clothesData.length} vêtements préparés pour traitement`);
+      
+      // ✨ NOUVEAU: Log des styles disponibles pour déboguer
+      const stylesCount = clothesData.reduce((acc, cloth) => {
+        acc[cloth.style] = (acc[cloth.style] || 0) + 1;
+        return acc;
+      }, {} as Record<string, number>);
+      console.log(`   🎨 Styles disponibles dans les vêtements:`, stylesCount);
+      console.log(`   🎯 Préférence demandée: "${normalizedPreference}"`);
+      
+      // ✨ NOUVEAU: Vérifier par catégorie
+      type ClothDataItem = {
+        id: string;
+        category: string;
+        color: string;
+        style: string;
+        season: string;
+        score: number;
+        image: string;
+      };
+      const byCategory = clothesData.reduce((acc, cloth) => {
+        if (!acc[cloth.category]) acc[cloth.category] = [];
+        acc[cloth.category].push(cloth);
+        return acc;
+      }, {} as Record<string, ClothDataItem[]>);
+      
+      const topsWithStyle = byCategory['top']?.filter(c => c.style === normalizedPreference).length || 0;
+      const bottomsWithStyle = byCategory['bottom']?.filter(c => c.style === normalizedPreference).length || 0;
+      const footwearWithStyle = byCategory['footwear']?.filter(c => c.style === normalizedPreference).length || 0;
+      
+      console.log(`   📊 Vêtements avec style "${normalizedPreference}" par catégorie:`);
+      console.log(`      - Top: ${topsWithStyle}`);
+      console.log(`      - Bottom: ${bottomsWithStyle}`);
+      console.log(`      - Footwear: ${footwearWithStyle}`);
+      
+      // ✨ NOUVEAU: Afficher les détails des vêtements avec le style demandé
+      const formalTops = byCategory['top']?.filter(c => c.style === normalizedPreference) || [];
+      const formalBottoms = byCategory['bottom']?.filter(c => c.style === normalizedPreference) || [];
+      const formalFootwear = byCategory['footwear']?.filter(c => c.style === normalizedPreference) || [];
+      
+      console.log(`   📋 Détails des vêtements "${normalizedPreference}":`);
+      if (formalTops.length > 0) {
+        console.log(`      Tops: ${formalTops.map(t => `ID:${t.id.substring(0, 8)}... (season:${t.season})`).join(', ')}`);
+      }
+      if (formalBottoms.length > 0) {
+        console.log(`      Bottoms: ${formalBottoms.map(b => `ID:${b.id.substring(0, 8)}... (season:${b.season})`).join(', ')}`);
+      }
+      if (formalFootwear.length > 0) {
+        console.log(`      Footwear: ${formalFootwear.map(f => `ID:${f.id.substring(0, 8)}... (season:${f.season})`).join(', ')}`);
+      }
+      
+      // Vérifier si on a des vêtements avec le style demandé
+      const matchingStyleCount = clothesData.filter(c => c.style === normalizedPreference).length;
+      console.log(`   ✅ ${matchingStyleCount} vêtement(s) au total avec le style "${normalizedPreference}"`);
+      
+      // ✨ NOUVEAU: Calculer la saison à partir de la température (comme le script Python)
+      const getSeasonFromTemperature = (temp: number | undefined): string => {
+        if (temp === undefined) return 'summer'; // Défaut
+        if (temp > 20) return 'summer';
+        if (temp > 10) return 'spring';
+        if (temp > 0) return 'fall';
+        return 'winter';
+      };
+      
+      const targetSeason = getSeasonFromTemperature(temperature);
+      console.log(`   🌤️ Saison déterminée par météo: ${targetSeason} (temp: ${temperature || 'N/A'}°C)`);
+      
+      // ✨ NOUVEAU: Vérifier les vêtements par saison (météo)
+      const matchesSeason = (itemSeason: string, target: string): boolean => {
+        const item = itemSeason?.toLowerCase() || '';
+        const targetLower = target.toLowerCase();
+        // Accepter "all" saison
+        if (item === 'all' || item === 'toutes' || item === 'all seasons' || item === 'toutes saisons' || item === '') {
+          return true;
+        }
+        return item === targetLower;
+      };
+      
+      const topsWithSeason = byCategory['top']?.filter(c => matchesSeason(c.season, targetSeason)).length || 0;
+      const bottomsWithSeason = byCategory['bottom']?.filter(c => matchesSeason(c.season, targetSeason)).length || 0;
+      const footwearWithSeason = byCategory['footwear']?.filter(c => matchesSeason(c.season, targetSeason)).length || 0;
+      
+      console.log(`   📊 Vêtements avec saison "${targetSeason}" (météo) par catégorie:`);
+      console.log(`      - Top: ${topsWithSeason}`);
+      console.log(`      - Bottom: ${bottomsWithSeason}`);
+      console.log(`      - Footwear: ${footwearWithSeason}`);
+      
+      // ✨ NOUVEAU: Vérifier les vêtements avec style ET saison
+      const topsWithStyleAndSeason = byCategory['top']?.filter(c => 
+        c.style === normalizedPreference && matchesSeason(c.season, targetSeason)
+      ).length || 0;
+      const bottomsWithStyleAndSeason = byCategory['bottom']?.filter(c => 
+        c.style === normalizedPreference && matchesSeason(c.season, targetSeason)
+      ).length || 0;
+      const footwearWithStyleAndSeason = byCategory['footwear']?.filter(c => 
+        c.style === normalizedPreference && matchesSeason(c.season, targetSeason)
+      ).length || 0;
+      
+      console.log(`   📊 Vêtements avec style "${normalizedPreference}" ET saison "${targetSeason}" par catégorie:`);
+      console.log(`      - Top: ${topsWithStyleAndSeason}`);
+      console.log(`      - Bottom: ${bottomsWithStyleAndSeason}`);
+      console.log(`      - Footwear: ${footwearWithStyleAndSeason}`);
+      
+      // ✨ NOUVEAU: Détecter les 3 cas et générer les messages appropriés
+      const hasEnoughStyle = topsWithStyle > 0 && bottomsWithStyle > 0 && footwearWithStyle > 0;
+      const hasEnoughSeason = topsWithSeason > 0 && bottomsWithSeason > 0 && footwearWithSeason > 0;
+      const hasEnoughStyleAndSeason = topsWithStyleAndSeason > 0 && bottomsWithStyleAndSeason > 0 && footwearWithStyleAndSeason > 0;
+      
+      // Cas 1: Pas assez de vêtements pour le style
+      if (!hasEnoughStyle) {
+        const missingStyle: string[] = [];
+        if (topsWithStyle === 0) missingStyle.push('top');
+        if (bottomsWithStyle === 0) missingStyle.push('bottom');
+        if (footwearWithStyle === 0) missingStyle.push('footwear');
+        
+        const itemNames = missingStyle.map(cat => cat === 'footwear' ? 'pair of shoes' : cat);
+        let errorMessage = `You don't have enough clothes for the "${normalizedPreference}" style. `;
+        if (missingStyle.length === 3) {
+          errorMessage += `Please add at least one top, one bottom, and one pair of shoes with the "${normalizedPreference}" style to your wardrobe.`;
+        } else if (missingStyle.length === 2) {
+          errorMessage += `You're missing ${itemNames.join(' and ')}. Please add at least one ${itemNames.join(' and one ')} with the "${normalizedPreference}" style.`;
+        } else {
+          errorMessage += `You're missing a ${itemNames[0]}. Please add at least one ${itemNames[0]} with the "${normalizedPreference}" style to your wardrobe.`;
+        }
+        throw new BadRequestException(errorMessage);
+      }
+      
+      // Cas 2: Pas assez de vêtements pour la saison (météo)
+      if (!hasEnoughSeason) {
+        const missingSeason: string[] = [];
+        if (topsWithSeason === 0) missingSeason.push('top');
+        if (bottomsWithSeason === 0) missingSeason.push('bottom');
+        if (footwearWithSeason === 0) missingSeason.push('footwear');
+        
+        const itemNames = missingSeason.map(cat => cat === 'footwear' ? 'pair of shoes' : cat);
+        let errorMessage = `You don't have enough clothes for the ${targetSeason} season (current weather). `;
+        if (missingSeason.length === 3) {
+          errorMessage += `Please add at least one top, one bottom, and one pair of shoes suitable for ${targetSeason} weather to your wardrobe.`;
+        } else if (missingSeason.length === 2) {
+          errorMessage += `You're missing ${itemNames.join(' and ')}. Please add at least one ${itemNames.join(' and one ')} suitable for ${targetSeason} weather.`;
+        } else {
+          errorMessage += `You're missing a ${itemNames[0]}. Please add at least one ${itemNames[0]} suitable for ${targetSeason} weather to your wardrobe.`;
+        }
+        throw new BadRequestException(errorMessage);
+      }
+      
+      // Cas 3: Pas assez de vêtements pour le style ET la saison
+      if (!hasEnoughStyleAndSeason) {
+        const missingBoth: string[] = [];
+        if (topsWithStyleAndSeason === 0) missingBoth.push('top');
+        if (bottomsWithStyleAndSeason === 0) missingBoth.push('bottom');
+        if (footwearWithStyleAndSeason === 0) missingBoth.push('footwear');
+        
+        const itemNames = missingBoth.map(cat => cat === 'footwear' ? 'pair of shoes' : cat);
+        let errorMessage = `You don't have enough clothes for the "${normalizedPreference}" style AND the ${targetSeason} season (current weather). `;
+        if (missingBoth.length === 3) {
+          errorMessage += `Please add at least one top, one bottom, and one pair of shoes with the "${normalizedPreference}" style suitable for ${targetSeason} weather to your wardrobe.`;
+        } else if (missingBoth.length === 2) {
+          errorMessage += `You're missing ${itemNames.join(' and ')}. Please add at least one ${itemNames.join(' and one ')} with the "${normalizedPreference}" style suitable for ${targetSeason} weather.`;
+        } else {
+          errorMessage += `You're missing a ${itemNames[0]}. Please add at least one ${itemNames[0]} with the "${normalizedPreference}" style suitable for ${targetSeason} weather to your wardrobe.`;
+        }
+        throw new BadRequestException(errorMessage);
+      }
 
       // 4. Exécuter le script Python avec les données via stdin
       const cityParam = city || 'Tunis';
       const args = [
         this.pythonScriptPath,
-        '--preference', preference,
+        '--preference', normalizedPreference, // ✨ Utiliser la préférence normalisée
         '--city', cityParam,
       ];
       
@@ -160,25 +371,107 @@ export class RecommendationsService {
       const pythonResult = this.parsePythonOutput(stdout);
       
       if (!pythonResult.success || !pythonResult.outfit) {
-        throw new BadRequestException(
-          pythonResult.message || pythonResult.error || 'Aucun outfit recommandé',
-        );
+        // ✨ NOUVEAU: Si le script Python échoue, utiliser le message générique
+        // (Les vérifications spécifiques ont déjà été faites avant l'appel au script)
+        let errorMessage = pythonResult.message || pythonResult.error;
+        
+        if (!errorMessage) {
+          // Message générique si le script Python n'a pas fourni de message
+          errorMessage = `Unable to generate a complete "${normalizedPreference}" outfit. `;
+          errorMessage += `Please make sure you have at least one top, one bottom, and one pair of shoes with the "${normalizedPreference}" style suitable for ${targetSeason} weather.`;
+        } else {
+          // Si le script Python a fourni un message, le traduire en anglais user-friendly
+          errorMessage = errorMessage
+            .replace(/Impossible de créer/i, 'Unable to create')
+            .replace(/outfit complet/i, 'complete outfit')
+            .replace(/style/i, 'style')
+            .replace(/Assurez-vous/i, 'Make sure')
+            .replace(/dressing/i, 'wardrobe')
+            .replace(/Catégories manquantes/i, 'Missing categories')
+            .replace(/chaussures/i, 'shoes');
+        }
+        
+        throw new BadRequestException(errorMessage);
       }
-
-      // 6. Récupérer les objets Clothes complets depuis MongoDB
+      
+      // ✨ NOUVEAU: Vérifier que tous les vêtements ont le style demandé ET la saison correcte
       const topId = pythonResult.outfit.top;
       const bottomId = pythonResult.outfit.bottom;
       const footwearId = pythonResult.outfit.footwear;
-
-      const [top, bottom, footwear] = await Promise.all([
+      
+      const [topCheck, bottomCheck, footwearCheck] = await Promise.all([
         this.clothesModel.findById(topId).exec(),
         this.clothesModel.findById(bottomId).exec(),
         this.clothesModel.findById(footwearId).exec(),
       ]);
-
-      if (!top || !bottom || !footwear) {
-        throw new NotFoundException('Certains vêtements recommandés sont introuvables dans la base de données');
+      
+      // Vérifier que tous les styles correspondent à la préférence
+      const topStyle = topCheck?.style?.toLowerCase().trim() || '';
+      const bottomStyle = bottomCheck?.style?.toLowerCase().trim() || '';
+      const footwearStyle = footwearCheck?.style?.toLowerCase().trim() || '';
+      
+      const styleMatches = (style: string, preference: string): boolean => {
+        if (style.includes(preference)) return true;
+        if (preference === 'formal' && style.includes('formal')) return true;
+        if (preference === 'sport' && style.includes('sport')) return true;
+        if (preference === 'casual' && style.includes('casual')) return true;
+        return false;
+      };
+      
+      // ✨ NOUVEAU: Vérifier que tous les vêtements correspondent à la saison (météo)
+      const topSeason = topCheck?.season?.toLowerCase() || '';
+      const bottomSeason = bottomCheck?.season?.toLowerCase() || '';
+      const footwearSeason = footwearCheck?.season?.toLowerCase() || '';
+      
+      const seasonMatches = (itemSeason: string, target: string): boolean => {
+        const item = itemSeason?.toLowerCase() || '';
+        const targetLower = target.toLowerCase();
+        // Accepter "all" saison
+        if (item === 'all' || item === 'toutes' || item === 'all seasons' || item === 'toutes saisons' || item === '') {
+          return true;
+        }
+        return item === targetLower;
+      };
+      
+      // Vérifier d'abord la saison (priorité)
+      const topSeasonMatch = seasonMatches(topSeason, targetSeason);
+      const bottomSeasonMatch = seasonMatches(bottomSeason, targetSeason);
+      const footwearSeasonMatch = seasonMatches(footwearSeason, targetSeason);
+      
+      if (!topSeasonMatch || !bottomSeasonMatch || !footwearSeasonMatch) {
+        const missingSeasonItems: string[] = [];
+        if (!topSeasonMatch) missingSeasonItems.push('top');
+        if (!bottomSeasonMatch) missingSeasonItems.push('bottom');
+        if (!footwearSeasonMatch) missingSeasonItems.push('footwear');
+        
+        const itemNames = missingSeasonItems.map(cat => cat === 'footwear' ? 'pair of shoes' : cat);
+        let errorMessage = `You don't have enough clothes for the ${targetSeason} season (current weather). `;
+        if (missingSeasonItems.length === 3) {
+          errorMessage += `Please add at least one top, one bottom, and one pair of shoes suitable for ${targetSeason} weather to your wardrobe.`;
+        } else if (missingSeasonItems.length === 2) {
+          errorMessage += `You're missing ${itemNames.join(' and ')}. Please add at least one ${itemNames.join(' and one ')} suitable for ${targetSeason} weather.`;
+        } else {
+          errorMessage += `You're missing a ${itemNames[0]}. Please add at least one ${itemNames[0]} suitable for ${targetSeason} weather to your wardrobe.`;
+        }
+        console.warn(`   ⚠️ Season mismatch détecté: top="${topSeason}", bottom="${bottomSeason}", footwear="${footwearSeason}", saison cible="${targetSeason}"`);
+        throw new BadRequestException(errorMessage);
       }
+      
+      // Vérifier ensuite le style
+      if (!styleMatches(topStyle, normalizedPreference) || 
+          !styleMatches(bottomStyle, normalizedPreference) || 
+          !styleMatches(footwearStyle, normalizedPreference)) {
+        console.warn(`   ⚠️ Style mismatch détecté: top="${topStyle}", bottom="${bottomStyle}", footwear="${footwearStyle}", préférence="${normalizedPreference}"`);
+        throw new BadRequestException(
+          `Unable to create a complete outfit with the "${normalizedPreference}" style. ` +
+          `Please make sure you have at least one top, one bottom, and one pair of shoes with the "${normalizedPreference}" style in your wardrobe.`
+        );
+      }
+
+      // 6. Récupérer les objets Clothes complets depuis MongoDB (déjà récupérés pour la vérification)
+      const top = topCheck!;
+      const bottom = bottomCheck!;
+      const footwear = footwearCheck!;
 
       // 7. Construire la réponse finale
       const response = {
