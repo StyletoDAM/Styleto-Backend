@@ -295,4 +295,26 @@ export class ClothesService {
     
     return updated;
   }
+  // Obtenir les vêtements avec beaucoup de rejets (suggestions de vente)
+async getSellSuggestions(userId: string): Promise<Clothes[]> {
+  if (!Types.ObjectId.isValid(userId)) {
+    throw new ForbiddenException('Invalid user ID format');
+  }
+
+  // Vêtements avec au moins 3 rejets ET ratio rejet > 60%
+  const suggestions = await this.clothesModel
+    .find({
+      userId: new Types.ObjectId(userId),
+      rejectedCount: { $gte: 3 }, // Au moins 3 rejets
+    })
+    .exec();
+
+  // Filtrer par ratio de rejet
+  return suggestions.filter(cloth => {
+    const total = cloth.acceptedCount + cloth.rejectedCount;
+    if (total === 0) return false;
+    const rejectRatio = cloth.rejectedCount / total;
+    return rejectRatio > 0.6; // Plus de 60% de rejets
+  });
+}
 }

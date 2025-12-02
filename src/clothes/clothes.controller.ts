@@ -37,27 +37,17 @@ import { GetUser } from 'src/common/decorators/get-user.decorator';
 export class ClothController {
   constructor(private readonly clothService: ClothesService) {}
 
-  // CREATE avec gestion corrections
+  // ==========================================
+  // ROUTES SPÉCIFIQUES EN PREMIER
+  // ==========================================
+  
   @Post()
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Create a new clothing item (user from JWT)' })
-  @ApiBody({ type: CreateClotheDto })
-  @ApiBearerAuth()
   async create(@Body() createClothDto: CreateClotheDto, @GetUser() user: any) {
-    if (!user?.id) {
-      throw new UnauthorizedException('Utilisateur non authentifié');
-    }
-
-    const clothesWithUser = {
-      ...createClothDto,
-      userId: user.id,
-      isCorrected: !!createClothDto.originalDetection,
-    };
-
-    return await this.clothService.create(clothesWithUser);
+    // ... votre code existant
   }
 
-  // ✨ NOUVEAU : Exporter corrections pour fine-tuning
   @Get('corrections')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Exporter les vêtements corrigés pour fine-tuning' })
@@ -65,23 +55,16 @@ export class ClothController {
     return await this.clothService.findCorrected();
   }
 
-  // ✨ NOUVEAU : Stats globales (tous les utilisateurs)
   @Get('stats/global')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({
-    summary: 'Statistiques globales des corrections (admin/dashboard)',
-  })
+  @ApiOperation({ summary: 'Statistiques globales des corrections' })
   async getGlobalStats() {
     return await this.clothService.getGlobalCorrectionStats();
   }
 
-  // ✨ NOUVEAU : Stats personnelles de l'utilisateur connecté
   @Get('stats/me')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({
-    summary: 'Mes statistiques de corrections et préférences',
-  })
-  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Mes statistiques de corrections et préférences' })
   async getMyStats(@GetUser() user: any) {
     if (!user?.id) {
       throw new UnauthorizedException('Utilisateur non authentifié');
@@ -89,52 +72,43 @@ export class ClothController {
     return await this.clothService.getUserStats(user.id);
   }
 
-  // FIND ALL
-  @Get()
+  // ✅ DÉPLACÉ ICI - AVANT @Get(':id')
+  @Get('sell-suggestions')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Retrieve all clothing items' })
-  @ApiResponse({
-    status: 200,
-    description: 'List of clothing items retrieved successfully.',
-  })
-  async findAll() {
-    return await this.clothService.findAll();
+  @ApiOperation({ summary: 'Obtenir les vêtements à vendre (rejetés plusieurs fois)' })
+  @ApiBearerAuth()
+  async getSellSuggestions(@GetUser() user: any) {
+    if (!user?.id) {
+      throw new UnauthorizedException('Utilisateur non authentifié');
+    }
+    return await this.clothService.getSellSuggestions(user.id);
   }
 
-  // MY CLOTHES
   @Get('my')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Récupérer mes vêtements' })
-  @ApiResponse({
-    status: 200,
-    description: "Liste des vêtements de l'utilisateur connecté.",
-  })
-  @ApiBearerAuth()
   async findMyClothes(@GetUser() user: any) {
     if (!user?.id) {
       throw new UnauthorizedException('Utilisateur non authentifié');
     }
-
-    const clothes = await this.clothService.findByUserId(user.id);
-    return clothes;
+    return await this.clothService.findByUserId(user.id);
   }
 
-  // FIND ONE
+  // ==========================================
+  // ROUTES GÉNÉRIQUES EN DERNIER
+  // ==========================================
+
+  @Get()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Retrieve all clothing items' })
+  async findAll() {
+    return await this.clothService.findAll();
+  }
+
+  // ⚠️ Cette route doit être EN DERNIER parmi les GET
   @Get(':id')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Get a clothing item by ID' })
-  @ApiParam({
-    name: 'id',
-    description: 'Unique identifier of the clothing item',
-    type: String,
-  })
-  @ApiResponse({
-    status: 200,
-    description: 'Clothing item found successfully.',
-  })
-  @ApiNotFoundResponse({
-    description: 'No clothing item found with the provided ID.',
-  })
   async findOne(@Param('id') id: string) {
     const cloth = await this.clothService.findOne(id);
     if (!cloth)
@@ -142,29 +116,9 @@ export class ClothController {
     return cloth;
   }
 
-  // UPDATE
   @Patch(':id')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Update an existing clothing item' })
-  @ApiParam({
-    name: 'id',
-    description: 'Unique identifier of the clothing item',
-    type: String,
-  })
-  @ApiBody({
-    type: UpdateClotheDto,
-    description: 'Data fields to update in the clothing item',
-  })
-  @ApiResponse({
-    status: 200,
-    description: 'Clothing item updated successfully.',
-  })
-  @ApiNotFoundResponse({
-    description: 'No clothing item found with the provided ID.',
-  })
-  @ApiBadRequestResponse({
-    description: 'Invalid data sent for update.',
-  })
   async update(
     @Param('id') id: string,
     @Body() updateClothDto: UpdateClotheDto,
@@ -172,53 +126,13 @@ export class ClothController {
     try {
       return await this.clothService.update(id, updateClothDto);
     } catch (error) {
-      throw new NotFoundException(
-        `Unable to update clothing item with ID ${id}`,
-      );
+      throw new NotFoundException(`Unable to update clothing item with ID ${id}`);
     }
   }
 
-  // DELETE (SÉCURISÉ)
-  @Delete(':id')
-  @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({
-    summary:
-      'Supprimer un de MES vêtements (seulement si je suis le propriétaire)',
-  })
-  @ApiParam({ name: 'id', description: 'ID du vêtement à supprimer' })
-  @ApiResponse({ status: 204, description: 'Vêtement supprimé avec succès' })
-  @ApiNotFoundResponse({ description: 'Vêtement non trouvé' })
-  @ApiBearerAuth()
-  async removeMyClothe(@Param('id') id: string, @GetUser() user: any) {
-    if (!user?.id) {
-      throw new UnauthorizedException('Utilisateur non authentifié');
-    }
-
-    const success = await this.clothService.removeMyClothe(id, user.id);
-    if (!success) {
-      throw new NotFoundException(
-        `Vêtement non trouvé ou vous n'êtes pas autorisé à le supprimer`,
-      );
-    }
-
-    return;
-  }
-  // Incrémenter acceptedCount ou rejectedCount
   @Patch(':id/feedback')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Incrémenter acceptedCount ou rejectedCount d\'un vêtement' })
-  @ApiParam({ name: 'id', description: 'ID du vêtement' })
-  @ApiBody({
-    schema: {
-      type: 'object',
-      properties: {
-        accepted: { type: 'boolean', description: 'true pour accepter, false pour rejeter' }
-      },
-      required: ['accepted']
-    }
-  })
-  @ApiResponse({ status: 200, description: 'Compteur mis à jour avec succès' })
-  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Incrémenter acceptedCount ou rejectedCount' })
   async updateFeedback(
     @Param('id') id: string,
     @Body('accepted') accepted: boolean,
@@ -227,7 +141,22 @@ export class ClothController {
     if (!user?.id) {
       throw new UnauthorizedException('Utilisateur non authentifié');
     }
-
     return await this.clothService.updateFeedback(id, accepted, user.id);
+  }
+
+  @Delete(':id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Supprimer un de MES vêtements' })
+  async removeMyClothe(@Param('id') id: string, @GetUser() user: any) {
+    if (!user?.id) {
+      throw new UnauthorizedException('Utilisateur non authentifié');
+    }
+    const success = await this.clothService.removeMyClothe(id, user.id);
+    if (!success) {
+      throw new NotFoundException(
+        "Vêtement non trouvé ou vous n'êtes pas autorisé à le supprimer",
+      );
+    }
+    return;
   }
 }
