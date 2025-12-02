@@ -42,11 +42,21 @@ export class ClothController {
   // ==========================================
   
   @Post()
-  @HttpCode(HttpStatus.CREATED)
-  @ApiOperation({ summary: 'Create a new clothing item (user from JWT)' })
-  async create(@Body() createClothDto: CreateClotheDto, @GetUser() user: any) {
-    // ... votre code existant
+@HttpCode(HttpStatus.CREATED)
+@ApiOperation({ summary: 'Create a new clothing item (user from JWT)' })
+async create(@Body() createClothDto: CreateClotheDto, @GetUser() user: any) {
+  if (!user?.id) {
+    throw new UnauthorizedException('Utilisateur non authentifié');
   }
+
+  // IMPORTANT : on ajoute l'userId provenant du JWT
+  const result = await this.clothService.create({
+    ...createClothDto,
+    userId: user.id,
+  });
+
+  return result; // ← obligatoire pour avoir le JSON en réponse
+}
 
   @Get('corrections')
   @HttpCode(HttpStatus.OK)
