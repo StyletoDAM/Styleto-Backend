@@ -22,7 +22,7 @@ export class RecommendOutfitDto {
     },
   })
   @IsString()
-  @IsIn(['casual', 'formal', 'sport'])
+  @IsIn(['casual', 'formal', 'sport' ,'elegant','bohemian','vintage','modern'])
   preference: string;
 
   @ApiProperty({

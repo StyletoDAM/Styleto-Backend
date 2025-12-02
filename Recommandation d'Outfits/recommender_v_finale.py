@@ -544,7 +544,7 @@ def explain_outfit(outfit, weather, season, pref, top, bottom, shoe, tops_candid
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Recommandation d\'outfit basée sur ML')
     parser.add_argument('--preference', type=str, default='casual',
-                       choices=['casual', 'formal', 'sport'],
+                       choices=['casual', 'formal', 'sport' ,'elegant','bohemian','vintage','modern'],
                        help='Style préféré de l\'utilisateur')
     parser.add_argument('--city', type=str, default='Tunis',
                        help='Ville pour la météo')
