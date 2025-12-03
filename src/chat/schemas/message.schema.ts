@@ -14,6 +14,23 @@ export class Message {
 
   @Prop({ type: Date })
   readAt?: Date;
+
+  // ✨ NOUVEAU : Informations extraites par l'IA (téléphone, adresse, email, URL)
+  @Prop({
+    type: {
+      phoneNumbers: [String],
+      addresses: [String],
+      emails: [String],
+      urls: [String],
+    },
+    required: false,
+  })
+  extractedInfo?: {
+    phoneNumbers?: string[];
+    addresses?: string[];
+    emails?: string[];
+    urls?: string[];
+  };
 }
 
 export type MessageDocument = Message & Document;

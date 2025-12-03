@@ -4,6 +4,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { ChatGateway } from './chat.gateway';
 import { ChatService } from './chat.service';
 import { ChatController } from './chat.controller';
+import { AiAnalysisService } from './ai-analysis.service';
 import { Message, MessageSchema } from './schemas/message.schema';
 import { Conversation, ConversationSchema } from './schemas/conversation.schema';
 import { JWT_SECRET, JWT_SIGN_OPTIONS } from '../auth/auth.constants';
@@ -20,7 +21,7 @@ import { JWT_SECRET, JWT_SIGN_OPTIONS } from '../auth/auth.constants';
     }),
   ],
   controllers: [ChatController],
-  providers: [ChatGateway, ChatService],
+  providers: [ChatGateway, ChatService, AiAnalysisService],
   exports: [ChatService],
 })
 export class ChatModule {}

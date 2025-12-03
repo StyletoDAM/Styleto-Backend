@@ -9,6 +9,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Message, MessageDocument } from './schemas/message.schema';
 import { Conversation, ConversationDocument } from './schemas/conversation.schema';
+import { AiAnalysisService } from './ai-analysis.service';
 
 @Injectable()
 export class ChatService {
@@ -17,6 +18,7 @@ export class ChatService {
   constructor(
     @InjectModel(Message.name) private messageModel: Model<MessageDocument>,
     @InjectModel(Conversation.name) private conversationModel: Model<ConversationDocument>,
+    private aiAnalysisService: AiAnalysisService,
   ) {}
 
   // CRÉER OU RÉCUPÉRER UNE CONVERSATION 1v1
@@ -63,10 +65,38 @@ export class ChatService {
     const isParticipant = conversation.participants.some((id: any) => id.toString() === senderId);
     if (!isParticipant) throw new ForbiddenException('Tu ne fais pas partie de cette conversation');
 
+    // ✨ NOUVEAU : Analyser le message avec l'IA pour extraire des informations
+    let extractedInfo = {};
+    let maskedContent = content; // Contenu masqué pour l'affichage
+    
+    try {
+      // Essayer d'abord avec Gemini AI
+      extractedInfo = await this.aiAnalysisService.analyzeMessage(content);
+      
+      // Si pas d'info trouvée, utiliser regex comme fallback
+      if (Object.keys(extractedInfo).length === 0) {
+        extractedInfo = this.aiAnalysisService.extractInfoWithRegex(content);
+      }
+      
+      // ✨ NOUVEAU : Masquer les informations sensibles dans le contenu
+      if (Object.keys(extractedInfo).length > 0) {
+        this.logger.log(`📊 Informations extraites: ${JSON.stringify(extractedInfo)}`);
+        maskedContent = this.aiAnalysisService.maskSensitiveInfo(content, extractedInfo);
+        this.logger.log(`🔒 Contenu masqué: "${maskedContent}"`);
+      }
+    } catch (error) {
+      this.logger.warn('Erreur lors de l\'extraction d\'informations, utilisation du fallback regex:', error);
+      extractedInfo = this.aiAnalysisService.extractInfoWithRegex(content);
+      if (Object.keys(extractedInfo).length > 0) {
+        maskedContent = this.aiAnalysisService.maskSensitiveInfo(content, extractedInfo);
+      }
+    }
+
     const message = await this.messageModel.create({
       conversationId: conversation._id, // ← ObjectId direct
       senderId: new Types.ObjectId(senderId),
-      content,
+      content: maskedContent, // ✨ Utiliser le contenu masqué pour l'affichage
+      extractedInfo: Object.keys(extractedInfo).length > 0 ? extractedInfo : undefined, // Garder les infos originales pour les actions
     });
 
     this.logger.log('Message créé avec conversationId:', message.conversationId);

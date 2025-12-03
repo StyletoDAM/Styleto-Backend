@@ -54,6 +54,9 @@ import { ClothesService } from './clothes/clothes.service';
         CLOUDINARY_CLOUD_NAME: Joi.string().required(),
         CLOUDINARY_API_KEY: Joi.string().required(),
         CLOUDINARY_API_SECRET: Joi.string().required(),
+
+        // GEMINI AI (optionnel - fallback regex si non configuré)
+        GEMINI_API_KEY: Joi.string().optional(),
       }),
       validationOptions: {
         abortEarly: false,
