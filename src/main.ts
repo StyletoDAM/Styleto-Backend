@@ -2,10 +2,21 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { json } from 'body-parser';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
+
+  app.use(
+    '/webhooks/stripe',
+    json({
+      verify: (req: any, res, buf) => {
+        req.rawBody = buf;
+      },
+    }),
+  );
+  
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,

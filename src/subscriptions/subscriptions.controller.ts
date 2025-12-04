@@ -6,22 +6,29 @@ import {
   Patch,
   Body,
   Param,
+  Query,
   UseGuards,
   BadRequestException,
+  Logger,
 } from '@nestjs/common';
-import { ApiTags, ApiBearerAuth, ApiOperation, ApiBody, ApiResponse } from '@nestjs/swagger';
+import { ApiTags, ApiBearerAuth, ApiOperation, ApiBody } from '@nestjs/swagger';
 import { SubscriptionsService } from './subscriptions.service';
+import { StripeService } from './stripe.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { GetUser } from '../common/decorators/get-user.decorator';
 import { SubscriptionPlan } from './schemas/subscription.schema';
 import { UpdateSubscriptionDto } from './dto/update-subscription.dto';
+import { ConfigService } from '@nestjs/config';
 
-// ✅ DTO pour le paiement simulé
-class SimulatePaymentDto {
-  cardNumber: string;
-  expiryDate: string;
-  cvv: string;
-  cardholderName: string;
+// --------------------------
+// DTOs
+// --------------------------
+class CreateCheckoutDto {
+  plan: 'PREMIUM' | 'PRO_SELLER' | 'FREE';
+}
+
+class VerifySessionDto {
+  sessionId: string;
 }
 
 @ApiTags('Subscriptions')
@@ -29,19 +36,148 @@ class SimulatePaymentDto {
 @UseGuards(JwtAuthGuard)
 @Controller('subscriptions')
 export class SubscriptionsController {
-  constructor(private readonly service: SubscriptionsService) {}
+  private readonly logger = new Logger(SubscriptionsController.name);
+
+  constructor(
+    private readonly service: SubscriptionsService,
+    private readonly stripeService: StripeService,
+    private readonly configService: ConfigService,
+  ) {}
 
   // --------------------------
-  // Utilitaire : normaliser plan
+  // STRIPE CHECKOUT SESSION
   // --------------------------
-  private normalizePlan(plan: string): SubscriptionPlan {
-    const normalized = plan.trim().toUpperCase().replace(/-/g, '_');
 
-    if (!Object.values(SubscriptionPlan).includes(normalized as SubscriptionPlan)) {
-      throw new BadRequestException('Invalid plan');
+  @Post('create-checkout-session')
+  @ApiOperation({ 
+    summary: 'Create Stripe Checkout session',
+    description: 'Crée une session de paiement Stripe pour souscrire à un plan'
+  })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        plan: {
+          type: 'string',
+          enum: ['PREMIUM', 'PRO_SELLER', 'FREE'],
+          example: 'PREMIUM'
+        }
+      }
+    }
+  })
+  async createCheckoutSession(
+    @GetUser() user: any,
+    @Body() dto: CreateCheckoutDto,
+  ) {
+    this.logger.log(`User ${user.id} creating checkout for plan ${dto.plan}`);
+
+    // Valider le plan
+    if (!['PREMIUM', 'PRO_SELLER', 'FREE'].includes(dto.plan)) {
+      throw new BadRequestException('Invalid plan. Use PREMIUM, PRO_SELLER or FREE');
     }
 
-    return normalized as SubscriptionPlan;
+    // Le plan FREE ne nécessite pas de paiement
+    if (dto.plan === 'FREE') {
+      await this.service.upgradePlan(user.id, SubscriptionPlan.FREE);
+      return {
+        success: true,
+        message: 'Downgraded to FREE plan',
+        plan: 'FREE',
+      };
+    }
+
+    // URLs de redirection
+    const frontendUrl = this.configService.get<string>('FRONTEND_URL') || 'http://localhost:3000';
+    
+    // Créer la session Stripe
+    const session = await this.stripeService.createTestCheckoutSession(
+      dto.plan as SubscriptionPlan,
+      `${frontendUrl}/subscription/success?session_id={CHECKOUT_SESSION_ID}`,
+      `${frontendUrl}/subscription/cancel`,
+      user.id, // Passer userId pour le webhook
+    );
+
+    return {
+      checkoutUrl: session.url,
+      sessionId: session.sessionId,
+      displayPrice: session.displayPrice,
+      plan: dto.plan,
+    };
+  }
+
+  // --------------------------
+  // VÉRIFIER UNE SESSION APRÈS PAIEMENT
+  // --------------------------
+
+  @Get('verify-session')
+  @ApiOperation({ 
+    summary: 'Verify checkout session',
+    description: 'Vérifie le statut d\'une session après redirection'
+  })
+  async verifySession(
+    @Query('sessionId') sessionId: string,
+    @GetUser() user: any,
+  ) {
+    if (!sessionId) {
+      throw new BadRequestException('sessionId is required');
+    }
+
+    this.logger.log(`Verifying session ${sessionId} for user ${user.id}`);
+
+    const session = await this.stripeService.verifyCheckoutSession(sessionId);
+
+    if (session.status !== 'paid') {
+      return {
+        success: false,
+        message: 'Payment not completed',
+        status: session.status,
+      };
+    }
+
+    // Activer l'abonnement si pas déjà fait par le webhook
+    if (session.userId === user.id && session.plan) {
+      await this.service.upgradePlan(user.id, session.plan, {
+        subscriptionId: session.subscriptionId,
+        customerId: session.customerId,
+      });
+    }
+
+    return {
+      success: true,
+      message: `Successfully subscribed to ${session.plan}`,
+      plan: session.plan,
+      subscriptionId: session.subscriptionId,
+    };
+  }
+
+  // --------------------------
+  // CUSTOMER PORTAL (Gestion abonnement)
+  // --------------------------
+
+  @Get('portal')
+  @ApiOperation({ 
+    summary: 'Get Stripe Customer Portal URL',
+    description: 'Retourne l\'URL du portail Stripe pour gérer l\'abonnement'
+  })
+  async getPortalUrl(@GetUser() user: any) {
+    const subscription = await this.service.getSubscription(user.id);
+
+    if (!subscription.stripeCustomerId) {
+      throw new BadRequestException('No active Stripe subscription found');
+    }
+
+    const frontendUrl = this.configService.get<string>('FRONTEND_URL') || 'http://localhost:3000';
+
+    // Créer une session Customer Portal
+    const stripe = new (require('stripe'))(this.configService.get<string>('STRIPE_SECRET_KEY'));
+    const session = await stripe.billingPortal.sessions.create({
+      customer: subscription.stripeCustomerId,
+      return_url: `${frontendUrl}/subscription`,
+    });
+
+    return {
+      portalUrl: session.url,
+    };
   }
 
   // --------------------------
@@ -61,7 +197,7 @@ export class SubscriptionsController {
   }
 
   @Get('plans')
-  @ApiOperation({ summary: 'Get all available subscription plans (in TND)' })
+  @ApiOperation({ summary: 'Get all available subscription plans' })
   async getPlans() {
     return {
       plans: [
@@ -109,90 +245,6 @@ export class SubscriptionsController {
   }
 
   // --------------------------
-  // POST : Paiement simulé (pour projet académique)
-  // --------------------------
-
-  @Post('purchase/:plan')
-  @ApiOperation({ 
-    summary: 'Simulate payment and activate plan (Academic project)',
-    description: 'Use card number 4242424242424242 for test payment'
-  })
-  async simulatePurchase(
-    @Param('plan') plan: string,
-    @Body() paymentData: SimulatePaymentDto,
-    @GetUser() user: any,
-  ) {
-    const normalizedPlan = this.normalizePlan(plan);
-
-    // ✅ Validation de la carte de test Stripe
-    const validTestCards = [
-      '4242424242424242',
-      '4242 4242 4242 4242',
-      '4242-4242-4242-4242',
-    ];
-
-    const cleanCardNumber = paymentData.cardNumber.replace(/[\s-]/g, '');
-
-    if (!validTestCards.some(card => card.replace(/[\s-]/g, '') === cleanCardNumber)) {
-      throw new BadRequestException({
-        success: false,
-        message: 'Carte invalide. Utilisez 4242 4242 4242 4242 pour les tests.',
-      });
-    }
-
-    // ✅ Validation CVV (3 chiffres)
-    if (!/^\d{3,4}$/.test(paymentData.cvv)) {
-      throw new BadRequestException({
-        success: false,
-        message: 'CVV invalide. Entrez 3 ou 4 chiffres.',
-      });
-    }
-
-    // ✅ Validation date d'expiration (format MM/YY ou MM/YYYY)
-    if (!/^\d{2}\/\d{2,4}$/.test(paymentData.expiryDate)) {
-      throw new BadRequestException({
-        success: false,
-        message: 'Date d\'expiration invalide. Format attendu: MM/YY',
-      });
-    }
-
-    // ✅ Simulation de délai réseau (pour réalisme)
-    await new Promise(resolve => setTimeout(resolve, 1500));
-
-    // ✅ Activer l'abonnement
-    const subscription = await this.service.upgradePlan(user.id, normalizedPlan, {
-      subscriptionId: `test_sub_${Date.now()}`,
-      customerId: `test_cus_${user.id}`,
-    });
-
-    // ✅ Récupérer les infos du plan
-    const planDetails = {
-      [SubscriptionPlan.FREE]: { name: 'Free Pack', price: 0 },
-      [SubscriptionPlan.PREMIUM]: { name: 'Premium', price: 30 },
-      [SubscriptionPlan.PRO_SELLER]: { name: 'Pro Seller', price: 90 },
-    };
-
-    return {
-      success: true,
-      message: `🎉 Paiement réussi ! Vous êtes maintenant abonné au plan ${planDetails[normalizedPlan].name}.`,
-      transaction: {
-        id: `txn_${Date.now()}`,
-        amount: planDetails[normalizedPlan].price,
-        currency: 'TND',
-        plan: normalizedPlan,
-        date: new Date().toISOString(),
-        cardLast4: cleanCardNumber.slice(-4),
-      },
-      subscription: {
-        plan: subscription.plan,
-        subscribedAt: subscription.subscribedAt,
-        expiresAt: subscription.expiresAt,
-        isActive: subscription.isActive,
-      },
-    };
-  }
-
-  // --------------------------
   // GET : Quotas
   // --------------------------
 
@@ -215,67 +267,23 @@ export class SubscriptionsController {
   }
 
   // --------------------------
-  // PATCH : Mettre à jour l'abonnement
+  // PATCH : Mise à jour manuelle (Admin/Debug)
   // --------------------------
 
   @Patch('me')
   @ApiOperation({ 
-    summary: 'Update subscription plan',
-    description: 'Change the user subscription plan. Example: { "plan": "PREMIUM" } or { "plan": "PRO_SELLER" }'
-  })
-  @ApiBody({
-    schema: {
-      type: 'object',
-      properties: {
-        plan: {
-          type: 'string',
-          enum: ['FREE', 'PREMIUM', 'PRO_SELLER'],
-          example: 'PREMIUM',
-          description: 'The subscription plan to set'
-        }
-      },
-      required: ['plan'],
-      example: {
-        plan: 'PREMIUM'
-      }
-    }
-  })
-  @ApiResponse({
-    status: 200,
-    description: 'Subscription updated successfully',
-    schema: {
-      type: 'object',
-      properties: {
-        message: { type: 'string', example: 'Subscription updated successfully' },
-        subscription: {
-          type: 'object',
-          properties: {
-            plan: { type: 'string', example: 'PREMIUM' },
-            subscribedAt: { type: 'string', format: 'date-time' },
-            expiresAt: { type: 'string', format: 'date-time' },
-            isActive: { type: 'boolean', example: true }
-          }
-        }
-      }
-    }
-  })
-  @ApiResponse({
-    status: 400,
-    description: 'Invalid plan',
-    schema: {
-      type: 'object',
-      properties: {
-        statusCode: { type: 'number', example: 400 },
-        message: { type: 'string', example: 'Invalid plan' }
-      }
-    }
+    summary: 'Update subscription plan manually (Admin/Debug)',
+    description: 'In production, use create-checkout-session instead'
   })
   async updateSubscription(
     @GetUser() user: any,
     @Body() updateDto: UpdateSubscriptionDto
   ) {
-    // Le DTO avec @IsEnum valide déjà le plan, mais on normalise quand même pour être sûr
-    const normalizedPlan = this.normalizePlan(updateDto.plan);
+    const normalizedPlan = updateDto.plan.trim().toUpperCase().replace(/-/g, '_') as SubscriptionPlan;
+
+    if (!Object.values(SubscriptionPlan).includes(normalizedPlan)) {
+      throw new BadRequestException('Invalid plan');
+    }
 
     const subscription = await this.service.upgradePlan(user.id, normalizedPlan);
 
