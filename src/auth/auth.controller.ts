@@ -48,11 +48,32 @@ export class AuthController {
   @ApiBody({ type: SigninDto })
   @ApiResponse({
     status: 200,
-    description: 'Authentication successful. Returns JWT token.',
+    description: 'Authentication successful. Returns JWT token and refresh token.',
   })
   @ApiResponse({ status: 401, description: 'Invalid credentials.' })
   async signin(@Request() req: { user: SafeUser }, @Body() _dto: SigninDto) {
     return this.authService.login(req.user);
+  }
+
+  // ✨ NOUVEAU : Refresh Token
+  @Post('refresh')
+  @ApiOperation({ summary: 'Refresh access token using refresh token' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        refreshToken: { type: 'string' },
+      },
+      required: ['refreshToken'],
+    },
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Token refreshed successfully. Returns new access token and refresh token.',
+  })
+  @ApiResponse({ status: 401, description: 'Invalid or expired refresh token.' })
+  async refresh(@Body() body: { refreshToken: string }) {
+    return this.authService.refreshToken(body.refreshToken);
   }
 
   // --- Get Profile ---

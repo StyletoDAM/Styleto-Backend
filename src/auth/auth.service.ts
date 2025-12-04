@@ -9,6 +9,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { JwtSignOptions } from '@nestjs/jwt';
 import { HttpService } from '@nestjs/axios'; 
 import { firstValueFrom } from 'rxjs'; 
 import * as bcrypt from 'bcryptjs';
@@ -44,6 +45,7 @@ interface JwtPayload {
 export interface AuthResponse {
   user: SafeUser;
   access_token: string;
+  refresh_token: string; // ✨ NOUVEAU : Refresh token pour renouveler l'access token
 }
 
 @Injectable()
@@ -396,10 +398,52 @@ export class AuthService {
   async login(user: SafeUser): Promise<AuthResponse> {
     if (!user?.id) throw new UnauthorizedException('Invalid user payload');
     const payload: JwtPayload = { sub: user.id, email: user.email };
+    
+    // ✨ NOUVEAU : Générer access token (expire après 1h)
+    const access_token = await this.jwtService.signAsync(payload);
+    
+    // ✨ NOUVEAU : Générer refresh token (expire après 7 jours)
+    const refreshExpiresIn = process.env.JWT_REFRESH_EXPIRES_IN || '7d';
+    const refresh_token = await this.jwtService.signAsync(payload, {
+      expiresIn: refreshExpiresIn as JwtSignOptions['expiresIn'],
+    });
+    
     return {
       user,
-      access_token: await this.jwtService.signAsync(payload),
+      access_token,
+      refresh_token,
     };
+  }
+
+  // ✨ NOUVEAU : Méthode pour rafraîchir le token
+  async refreshToken(refreshToken: string): Promise<{ access_token: string; refresh_token: string }> {
+    try {
+      // Vérifier le refresh token
+      const payload = await this.jwtService.verifyAsync<JwtPayload>(refreshToken);
+      
+      // Vérifier que l'utilisateur existe toujours
+      const user = await this.userService.findById(payload.sub);
+      if (!user) {
+        throw new UnauthorizedException('User not found');
+      }
+      
+      // Générer un nouveau access token
+      const newPayload: JwtPayload = { sub: user.id, email: user.email };
+      const access_token = await this.jwtService.signAsync(newPayload);
+      
+      // ✨ Rotation du refresh token : générer un nouveau refresh token
+      const refreshExpiresIn = process.env.JWT_REFRESH_EXPIRES_IN || '7d';
+      const newRefreshToken = await this.jwtService.signAsync(newPayload, {
+        expiresIn: refreshExpiresIn as JwtSignOptions['expiresIn'],
+      });
+      
+      return {
+        access_token,
+        refresh_token: newRefreshToken,
+      };
+    } catch (error) {
+      throw new UnauthorizedException('Invalid or expired refresh token');
+    }
   }
 
   // --- VALIDATE USER ---
