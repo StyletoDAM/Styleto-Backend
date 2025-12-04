@@ -30,6 +30,7 @@ export class StripeService {
     successUrl: string,
     cancelUrl: string,
     userId?: string,
+    interval: 'month' | 'year' = 'month', // ✨ NOUVEAU : Intervalle de facturation
   ) {
     this.logger.log(`Creating checkout session for plan: ${plan}, userId: ${userId}`);
 
@@ -38,19 +39,37 @@ export class StripeService {
     
     this.logger.log(`UserID converted to string: ${userIdString}`);
 
-    // ✅ Prix en TND (affichage) → convertis en centimes USD pour Stripe
-    const pricesInTND: Record<SubscriptionPlan, number> = {
+    // ✅ Prix mensuels en TND (affichage) → convertis en centimes USD pour Stripe
+    const monthlyPricesInTND: Record<SubscriptionPlan, number> = {
       [SubscriptionPlan.FREE]: 0,
       [SubscriptionPlan.PREMIUM]: 30, // 30 TND/mois
       [SubscriptionPlan.PRO_SELLER]: 90, // 90 TND/mois
     };
 
+    // ✅ Prix annuels en TND avec 20% de réduction
+    const annualPricesInTND: Record<SubscriptionPlan, number> = {
+      [SubscriptionPlan.FREE]: 0,
+      [SubscriptionPlan.PREMIUM]: Math.round(30 * 12 * 0.8), // 288 TND/an (20% de réduction)
+      [SubscriptionPlan.PRO_SELLER]: Math.round(90 * 12 * 0.8), // 864 TND/an (20% de réduction)
+    };
+
     // ✅ Conversion approximative TND → USD (1 TND ≈ 0.32 USD)
-    const pricesInUSDCents: Record<SubscriptionPlan, number> = {
+    const monthlyPricesInUSDCents: Record<SubscriptionPlan, number> = {
       [SubscriptionPlan.FREE]: 0,
       [SubscriptionPlan.PREMIUM]: 999, // ~10 USD
       [SubscriptionPlan.PRO_SELLER]: 2899, // ~29 USD
     };
+
+    // ✅ Prix annuels en USD avec 20% de réduction
+    const annualPricesInUSDCents: Record<SubscriptionPlan, number> = {
+      [SubscriptionPlan.FREE]: 0,
+      [SubscriptionPlan.PREMIUM]: Math.round(999 * 12 * 0.8), // ~9600 USD cents
+      [SubscriptionPlan.PRO_SELLER]: Math.round(2899 * 12 * 0.8), // ~27830 USD cents
+    };
+
+    // ✨ Sélectionner les prix selon l'intervalle
+    const pricesInTND = interval === 'year' ? annualPricesInTND : monthlyPricesInTND;
+    const pricesInUSDCents = interval === 'year' ? annualPricesInUSDCents : monthlyPricesInUSDCents;
 
     if (!(plan in pricesInTND)) {
       throw new BadRequestException(`Invalid plan: ${plan}`);
@@ -68,6 +87,13 @@ export class StripeService {
       [SubscriptionPlan.PRO_SELLER]: 'Toutes les fonctionnalités + Vente illimitée',
     };
 
+    // ✨ NOUVEAU : Nom et description selon l'intervalle
+    const intervalLabel = interval === 'year' ? 'an' : 'mois';
+    const intervalText = interval === 'year' ? 'annuel' : 'mensuel';
+    const productName = interval === 'year' 
+      ? `${planNames[plan]} - ${pricesInTND[plan]} TND/an (Économisez 20%!)`
+      : `${planNames[plan]} - ${pricesInTND[plan]} TND/mois`;
+
     try {
       // ✅ Création de la session Stripe avec metadata en string
       const session = await this.stripe.checkout.sessions.create({
@@ -77,13 +103,13 @@ export class StripeService {
             price_data: {
               currency: 'usd',
               product_data: {
-                name: `${planNames[plan]} - ${pricesInTND[plan]} TND/mois`,
-                description: planDescriptions[plan],
+                name: productName, // ✨ Utiliser le nom dynamique
+                description: `${planDescriptions[plan]} - Paiement ${intervalText}`,
                 images: ['https://i.imgur.com/EbQKFLt.png'],
               },
               unit_amount: pricesInUSDCents[plan],
               recurring: {
-                interval: 'month',
+                interval: interval, // ✨ Utiliser le paramètre interval
               },
             },
             quantity: 1,
@@ -96,6 +122,7 @@ export class StripeService {
           plan: plan,
           userId: userIdString, // ✅ Toujours une string
           priceDisplayedTND: pricesInTND[plan].toString(),
+          interval: interval, // ✨ NOUVEAU : Stocker l'intervalle dans metadata
         },
       });
 
@@ -104,7 +131,10 @@ export class StripeService {
       return { 
         url: session.url, 
         sessionId: session.id,
-        displayPrice: `${pricesInTND[plan]} TND/mois`,
+        displayPrice: interval === 'year' 
+          ? `${pricesInTND[plan]} TND/an (Économisez 20%!)`
+          : `${pricesInTND[plan]} TND/mois`,
+        interval: interval, // ✨ NOUVEAU : Retourner l'intervalle
       };
     } catch (error) {
       this.logger.error(`Error creating checkout session: ${error.message}`);
@@ -146,6 +176,7 @@ export class StripeService {
       priceDisplayedTND: session.metadata?.priceDisplayedTND,
       subscriptionId: session.subscription as string,
       customerId: session.customer as string,
+      interval: (session.metadata?.interval as 'month' | 'year') || 'month', // ✨ NOUVEAU : Récupérer l'intervalle
     };
   }
 

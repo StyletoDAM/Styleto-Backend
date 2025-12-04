@@ -221,7 +221,7 @@ export class SubscriptionsService {
   // UPGRADE
   // --------------------------
 
-  async upgradePlan(userId: string, plan: SubscriptionPlan, stripe?: any) {
+  async upgradePlan(userId: string, plan: SubscriptionPlan, stripe?: any, interval: 'month' | 'year' = 'month') {
     const sub = await this.getSubscription(userId);
 
     sub.plan = plan;
@@ -229,7 +229,11 @@ export class SubscriptionsService {
 
     if (plan !== SubscriptionPlan.FREE) {
       const expiry = new Date();
-      expiry.setMonth(expiry.getMonth() + 1);
+      if (interval === 'year') {
+        expiry.setFullYear(expiry.getFullYear() + 1); // ✨ +1 an
+      } else {
+        expiry.setMonth(expiry.getMonth() + 1); // ✨ +1 mois
+      }
       sub.expiresAt = expiry;
     } else {
       sub.expiresAt = undefined;

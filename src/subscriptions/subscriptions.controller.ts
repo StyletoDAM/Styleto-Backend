@@ -20,6 +20,7 @@ import { SubscriptionPlan } from './schemas/subscription.schema';
 import { UpdateSubscriptionDto } from './dto/update-subscription.dto';
 import { ConfigService } from '@nestjs/config';
 import { CreateCheckoutDto } from './dto/create-checkout.dto';
+import { Public } from '../common/decorators/public.decorator';
 
 @ApiTags('Subscriptions')
 @ApiBearerAuth()
@@ -68,12 +69,16 @@ export class SubscriptionsController {
     // URLs de redirection
     const frontendUrl = this.configService.get<string>('FRONTEND_URL') || 'http://localhost:3000';
     
+    // ✨ NOUVEAU : Récupérer l'intervalle depuis le DTO (défaut: 'month')
+    const interval = dto.interval || 'month';
+    
     // Créer la session Stripe
     const session = await this.stripeService.createTestCheckoutSession(
       dto.plan as SubscriptionPlan,
-      `${frontendUrl}/subscription/success?session_id={CHECKOUT_SESSION_ID}`,
-      `${frontendUrl}/subscription/cancel`,
+      `${frontendUrl}/subscriptions/success?session_id={CHECKOUT_SESSION_ID}`, // ✨ CORRIGÉ : /subscriptions/success au lieu de /subscription/success
+      `${frontendUrl}/subscriptions/cancel`,
       user.id, // Passer userId pour le webhook
+      interval, // ✨ NOUVEAU : Passer l'intervalle
     );
 
     return {
@@ -81,6 +86,64 @@ export class SubscriptionsController {
       sessionId: session.sessionId,
       displayPrice: session.displayPrice,
       plan: dto.plan,
+      interval: interval, // ✨ NOUVEAU : Retourner l'intervalle utilisé
+    };
+  }
+
+  // --------------------------
+  // PAGE DE SUCCÈS APRÈS PAIEMENT
+  // --------------------------
+
+  @Get('success')
+  @Public() // ✨ Route publique - Stripe redirige sans token
+  @ApiOperation({ 
+    summary: 'Payment success page',
+    description: 'Page de succès après paiement Stripe - Gère la redirection depuis Stripe (route publique)'
+  })
+  async paymentSuccess(
+    @Query('session_id') sessionId: string,
+  ) {
+    if (!sessionId) {
+      throw new BadRequestException('session_id is required');
+    }
+
+    this.logger.log(`Payment success for session ${sessionId}`);
+
+    // Vérifier la session
+    const session = await this.stripeService.verifyCheckoutSession(sessionId);
+
+    if (session.status !== 'paid') {
+      return {
+        success: false,
+        message: 'Payment not completed',
+        status: session.status,
+      };
+    }
+
+    // ✨ Récupérer le userId depuis les métadonnées Stripe (pas besoin d'authentification)
+    const userId = session.userId;
+    if (!userId) {
+      throw new BadRequestException('User ID not found in session metadata');
+    }
+
+    // Activer l'abonnement si pas déjà fait par le webhook
+    if (userId && session.plan) {
+      const interval = (session.interval as 'month' | 'year') || 'month';
+      await this.service.upgradePlan(userId, session.plan, {
+        subscriptionId: session.subscriptionId,
+        customerId: session.customerId,
+      }, interval);
+      
+      this.logger.log(`✅ Subscription activated for user ${userId}, plan: ${session.plan}`);
+    }
+
+    return {
+      success: true,
+      message: 'Payment successful! Your subscription has been activated.',
+      plan: session.plan,
+      interval: session.interval,
+      subscriptionId: session.subscriptionId,
+      priceDisplayedTND: session.priceDisplayedTND,
     };
   }
 
@@ -115,10 +178,11 @@ export class SubscriptionsController {
 
     // Activer l'abonnement si pas déjà fait par le webhook
     if (session.userId === user.id && session.plan) {
+      const interval = (session.interval as 'month' | 'year') || 'month'; // ✨ NOUVEAU : Récupérer l'intervalle
       await this.service.upgradePlan(user.id, session.plan, {
         subscriptionId: session.subscriptionId,
         customerId: session.customerId,
-      });
+      }, interval); // ✨ NOUVEAU : Passer l'intervalle
     }
 
     return {
@@ -156,6 +220,61 @@ export class SubscriptionsController {
 
     return {
       portalUrl: session.url,
+    };
+  }
+
+  // --------------------------
+  // PAGE D'ANNULATION APRÈS PAIEMENT
+  // --------------------------
+
+  @Get('cancel')
+  @Public() // ✨ Route publique - Stripe redirige sans token
+  @ApiOperation({ 
+    summary: 'Payment cancellation page',
+    description: 'Page affichée lorsque l\'utilisateur annule le paiement sur Stripe (route publique)'
+  })
+  async paymentCancel() {
+    return {
+      success: false,
+      message: 'Payment was cancelled. You can try again anytime.',
+    };
+  }
+
+  // --------------------------
+  // ANNULATION D'ABONNEMENT
+  // --------------------------
+
+  @Post('cancel')
+  @ApiOperation({ 
+    summary: 'Cancel subscription at period end',
+    description: 'Annule l\'abonnement à la fin de la période actuelle (pas immédiatement)'
+  })
+  async cancelSubscription(@GetUser() user: any) {
+    this.logger.log(`User ${user.id} requesting subscription cancellation`);
+
+    const subscription = await this.service.getSubscription(user.id);
+
+    if (!subscription.stripeSubscriptionId) {
+      throw new BadRequestException('No active Stripe subscription to cancel');
+    }
+
+    if (subscription.plan === 'FREE') {
+      throw new BadRequestException('You are already on the FREE plan');
+    }
+
+    // Annuler à la fin de la période (pas immédiatement)
+    const stripe = new (require('stripe'))(this.configService.get<string>('STRIPE_SECRET_KEY'));
+    await stripe.subscriptions.update(subscription.stripeSubscriptionId, {
+      cancel_at_period_end: true, // ✨ Annule à la fin de la période
+    });
+
+    this.logger.log(`✅ Subscription ${subscription.stripeSubscriptionId} will be canceled at period end`);
+
+    return {
+      success: true,
+      message: 'Subscription will be canceled at the end of the current period',
+      expiresAt: subscription.expiresAt,
+      plan: subscription.plan,
     };
   }
 

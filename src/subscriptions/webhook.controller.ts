@@ -5,6 +5,7 @@ import { StripeService } from './stripe.service';
 import { SubscriptionsService } from './subscriptions.service';
 import { SubscriptionPlan } from './schemas/subscription.schema';
 import Stripe from 'stripe';
+import { ConfigService } from '@nestjs/config'; // ✨ NOUVEAU : Pour accéder à STRIPE_SECRET_KEY
 
 @common.Controller('webhooks')
 export class WebhookController {
@@ -13,6 +14,7 @@ export class WebhookController {
   constructor(
     private stripeService: StripeService,
     private subscriptionsService: SubscriptionsService,
+    private configService: ConfigService, // ✨ NOUVEAU : Pour accéder à STRIPE_SECRET_KEY
   ) {}
 
   @common.Post('stripe')
@@ -110,6 +112,7 @@ export class WebhookController {
 
     const userId = session.metadata?.userId;
     const plan = session.metadata?.plan as SubscriptionPlan;
+    const interval = (session.metadata?.interval as 'month' | 'year') || 'month'; // ✨ NOUVEAU : Récupérer l'intervalle
 
     if (!userId || !plan) {
       this.logger.error('❌ Missing userId or plan in session metadata');
@@ -120,7 +123,7 @@ export class WebhookController {
     await this.subscriptionsService.upgradePlan(userId, plan, {
       subscriptionId: session.subscription as string,
       customerId: session.customer as string,
-    });
+    }, interval); // ✨ NOUVEAU : Passer l'intervalle
 
     this.logger.log(`✅ User ${userId} upgraded to ${plan}`);
   }
@@ -130,6 +133,7 @@ export class WebhookController {
 
     const userId = subscription.metadata?.userId;
     const plan = subscription.metadata?.plan as SubscriptionPlan;
+    const interval = (subscription.metadata?.interval as 'month' | 'year') || 'month'; // ✨ NOUVEAU : Récupérer l'intervalle
 
     if (!userId || !plan) {
       this.logger.error('❌ Missing userId or plan in subscription metadata');
@@ -139,7 +143,7 @@ export class WebhookController {
     await this.subscriptionsService.upgradePlan(userId, plan, {
       subscriptionId: subscription.id,
       customerId: subscription.customer as string,
-    });
+    }, interval); // ✨ NOUVEAU : Passer l'intervalle
 
     this.logger.log(`✅ Subscription ${subscription.id} created for user ${userId}`);
   }
@@ -156,12 +160,13 @@ export class WebhookController {
     // Vérifier le statut de l'abonnement
     if (subscription.status === 'active') {
       const plan = subscription.metadata?.plan as SubscriptionPlan;
+      const interval = (subscription.metadata?.interval as 'month' | 'year') || 'month'; // ✨ NOUVEAU : Récupérer l'intervalle
       
       if (plan) {
         await this.subscriptionsService.upgradePlan(userId, plan, {
           subscriptionId: subscription.id,
           customerId: subscription.customer as string,
-        });
+        }, interval); // ✨ NOUVEAU : Passer l'intervalle
 
         this.logger.log(`✅ Subscription ${subscription.id} updated for user ${userId}`);
       }
@@ -213,9 +218,37 @@ export class WebhookController {
 
     this.logger.log(`⚠️ Payment failed - Attempt ${invoice.attempt_count} for subscription ${subscriptionId}`);
     
-    // TODO: Envoyer notification à l'utilisateur
-    // TODO: Suspendre accès après X tentatives (selon vos règles métier)
+    // ✨ NOUVEAU : Récupérer la subscription depuis Stripe pour avoir les metadata
+    const stripeKey = this.configService.get<string>('STRIPE_SECRET_KEY');
+    if (!stripeKey) {
+      this.logger.error('❌ STRIPE_SECRET_KEY not found');
+      return;
+    }
+    const stripe = new (require('stripe'))(stripeKey);
+    const subscription = await stripe.subscriptions.retrieve(subscriptionId);
     
-    // Stripe réessaiera automatiquement selon vos paramètres
+    const userId = subscription.metadata?.userId;
+    if (!userId) {
+      this.logger.error('❌ Missing userId in subscription metadata');
+      return;
+    }
+
+    // ✨ NOUVEAU : Si c'est le 3ème échec (ou après plusieurs tentatives), retourner au FREE
+    // Stripe réessaie généralement 3 fois, donc après le 3ème échec, on retourne au FREE
+    if (invoice.attempt_count >= 3) {
+      this.logger.log(`⚠️ Payment failed ${invoice.attempt_count} times - Downgrading to FREE`);
+      
+      // Retourner au plan gratuit
+      await this.subscriptionsService.upgradePlan(userId, SubscriptionPlan.FREE);
+      
+      // Annuler l'abonnement Stripe
+      await stripe.subscriptions.cancel(subscriptionId);
+      
+      this.logger.log(`✅ User ${userId} downgraded to FREE after payment failure`);
+    } else {
+      // Sinon, juste notifier (Stripe réessaiera automatiquement)
+      this.logger.log(`⚠️ Payment failed - Attempt ${invoice.attempt_count}/3 - Stripe will retry`);
+      // TODO: Envoyer notification à l'utilisateur
+    }
   }
 }
