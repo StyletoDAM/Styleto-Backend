@@ -16,6 +16,7 @@ import { ChatModule } from './chat/chat.module';
 import { SubscriptionsModule } from './subscriptions/subscriptions.module';
 import { OrdersModule } from './orders/orders.module';
 import { RecommendationsModule } from './recommendations/recommendations.module';
+import { CartModule } from './cart/cart.module';
 import Joi from 'joi';
 // ✨ NOUVEAUX IMPORTS
 import { ScheduleModule } from '@nestjs/schedule';
@@ -83,6 +84,7 @@ import { ClothesService } from './clothes/clothes.service';
     SubscriptionsModule,
     OrdersModule,
     RecommendationsModule,
+    CartModule, // ✨ NOUVEAU : Module panier
   ],
   controllers: [AppController],
   providers: [AppService],

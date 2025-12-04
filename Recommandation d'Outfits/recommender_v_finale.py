@@ -390,7 +390,7 @@ def recommend_outfit(user_preference, simulated_weather, return_explanation=True
                 item for item in clothes 
                 if item.get("category", "").lower() == "top" 
                 and item.get("style", "").lower() == pref
-            ]
+                ]
             safe_print(f"  -> {len(tops_candidats)} 'top' trouvés pour '{pref}' (saison assouplie - fallback).", file=sys.stderr)
         
         # Pour les bottoms
@@ -419,7 +419,7 @@ def recommend_outfit(user_preference, simulated_weather, return_explanation=True
             missing.append("top")
         if len(bottoms_candidats) == 0:
             missing.append("bottom")
-        if len(footwear_candidats) == 0:
+            if len(footwear_candidats) == 0:
             missing.append("footwear")
         
         safe_print(f"  ❌ Pas assez de vêtements avec le style '{pref}' pour créer un outfit complet.", file=sys.stderr)
@@ -624,19 +624,19 @@ if __name__ == "__main__":
                 bottom_item.get("style", "").lower() == pref_lower and
                 footwear_item.get("style", "").lower() == pref_lower):
                 
-                # Retourner en JSON pour que NestJS puisse le parser
-                output = {
-                    "success": True,
-                    "outfit": result["outfit"],
-                    "weather": result["weather"],
-                    "season": result["season"],
-                    "preference": args.preference,
-                    "explanation": result["explanation"]
-                }
-                # IMPORTANT: Écrire le JSON dans stdout (pas stderr)
-                print(json.dumps(output))
-                sys.stdout.flush()  # Forcer l'écriture immédiate
-                safe_print("\n✅ Recommandation terminée avec succès", file=sys.stderr)
+            # Retourner en JSON pour que NestJS puisse le parser
+            output = {
+                "success": True,
+                "outfit": result["outfit"],
+                "weather": result["weather"],
+                "season": result["season"],
+                "preference": args.preference,
+                "explanation": result["explanation"]
+            }
+            # IMPORTANT: Écrire le JSON dans stdout (pas stderr)
+            print(json.dumps(output))
+            sys.stdout.flush()  # Forcer l'écriture immédiate
+            safe_print("\n✅ Recommandation terminée avec succès", file=sys.stderr)
             else:
                 # ✨ Si les styles ne correspondent pas, retourner une erreur
                 missing_styles = []

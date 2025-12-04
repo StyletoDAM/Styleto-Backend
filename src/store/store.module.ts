@@ -7,6 +7,7 @@ import { Clothes, ClothesSchema } from '../clothes/schemas/clothes.schema';
 import { UserModule } from '../user/user.module';
 import { SubscriptionsModule } from '../subscriptions/subscriptions.module'; 
 import { Order, OrderSchema } from 'src/orders/schemas/order.schema';
+import { CartModule } from '../cart/cart.module'; // ✨ NOUVEAU
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { Order, OrderSchema } from 'src/orders/schemas/order.schema';
 
     ]),
     forwardRef(() => UserModule),
+    forwardRef(() => CartModule), // ✨ NOUVEAU : forwardRef pour éviter dépendance circulaire
     SubscriptionsModule, // ✨ NOUVEAU
   ],
   controllers: [StoreController],

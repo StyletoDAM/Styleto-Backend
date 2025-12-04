@@ -40,7 +40,7 @@ export class RecommendationsService {
       console.log(`   User ID: ${userId}`);
       console.log(`   Préférence: ${preference}`);
       console.log(`   Ville: ${city || 'Tunis'}`);
-      
+
       // ✨ NOUVEAU: Normaliser la préférence pour correspondre aux styles des vêtements
       const normalizedPreference = preference.toLowerCase().trim();
 
@@ -398,13 +398,13 @@ export class RecommendationsService {
       const topId = pythonResult.outfit.top;
       const bottomId = pythonResult.outfit.bottom;
       const footwearId = pythonResult.outfit.footwear;
-      
+
       const [topCheck, bottomCheck, footwearCheck] = await Promise.all([
         this.clothesModel.findById(topId).exec(),
         this.clothesModel.findById(bottomId).exec(),
         this.clothesModel.findById(footwearId).exec(),
       ]);
-      
+
       // Vérifier que tous les styles correspondent à la préférence
       const topStyle = topCheck?.style?.toLowerCase().trim() || '';
       const bottomStyle = bottomCheck?.style?.toLowerCase().trim() || '';

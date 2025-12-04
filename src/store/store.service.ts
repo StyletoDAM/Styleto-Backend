@@ -16,7 +16,7 @@ import { forwardRef, Inject } from '@nestjs/common';
 import { UserService } from '../user/user.service';
 import { SubscriptionsService } from '../subscriptions/subscriptions.service';
 import { ConfirmPurchaseDto } from './dto/confirm-purchase.dto';
-
+import { CartService } from '../cart/cart.service';
 import { Order, OrderDocument } from '../orders/schemas/order.schema';
 
 @Injectable()
@@ -30,6 +30,7 @@ export class StoreService {
     private configService: ConfigService,
     @Inject(forwardRef(() => UserService)) private userService: UserService,
     private subscriptionsService: SubscriptionsService,
+    @Inject(forwardRef(() => CartService)) private cartService?: CartService, // ✨ NOUVEAU : Optionnel pour éviter dépendance circulaire
   ) {
     const stripeKey = this.configService.get<string>('STRIPE_SECRET_KEY');
     if (!stripeKey) {
@@ -211,6 +212,14 @@ export class StoreService {
       throw new BadRequestException('Vous ne pouvez pas acheter votre propre article');
     }
 
+    // ✨ NOUVEAU : Récupérer toutes les informations AVANT de supprimer le dressing
+    const clothes = await this.clothesModel.findById(item.clothesId).exec();
+    const imageURL = clothes?.imageURL || '';
+    const category = clothes?.category || '';
+    const style = clothes?.style || '';
+    const color = clothes?.color || '';
+    const season = clothes?.season || '';
+
     const amountCents = Math.round(item.price * 100);
 
     // PAIEMENT PAR BALANCE
@@ -255,44 +264,70 @@ export class StoreService {
     // CRÉDIT VENDEUR
     await this.userService.addToBalance(sellerId, amountCents);
 
-    // MARQUER COMME VENDU
-    const updatedItem = await this.storeModel
-      .findByIdAndUpdate(
-        storeItemId,
-        {
-          status: 'sold',
-          soldAt: new Date(),
-          buyerId: new Types.ObjectId(buyerId),
-          stripePaymentIntentId: dto.paymentMethod === 'stripe' ? dto.paymentIntentId : null,
-          paymentMethod: dto.paymentMethod,
-        },
-        { new: true },
-      )
-      .populate('userId', '-password -__v')
-      .populate('clothesId')
-      .exec();
-
-    if (!updatedItem) {
-      throw new NotFoundException("Erreur lors de la mise à jour de l'article");
-    }
-
-    // AJOUT CRITIQUE : CRÉER L'ORDRE
+    // ✨ NOUVEAU : CRÉER L'ORDRE AVANT DE SUPPRIMER (pour sauvegarder toutes les infos)
+    // Stocker toutes les informations importantes avant de supprimer le dressing
     try {
       const newOrder = new this.orderModel({
         clothesId: item.clothesId,
         userId: new Types.ObjectId(buyerId),
         price: item.price,
         orderDate: new Date(),
+        imageURL: imageURL, // ✨ Image
+        category: category, // ✨ Category
+        style: style, // ✨ Style
+        color: color, // ✨ Color
+        season: season, // ✨ Season
+        size: item.size, // ✨ Taille depuis Store
       });
 
       await newOrder.save();
-      console.log(`✅ Order created for buyer ${buyerId}, item ${storeItemId}`);
+      console.log(`✅ Order created for buyer ${buyerId}, item ${storeItemId} with all details saved`);
     } catch (error) {
       console.error('Failed to create order:', error);
       // Ne pas bloquer la transaction si la création d'ordre échoue
       // mais logger l'erreur pour investigation
     }
 
-    return updatedItem;
+    // ✨ MODIFIÉ : Supprimer complètement l'article du Store (pas juste marquer comme sold)
+    // Les paniers des autres utilisateurs garderont une référence mais l'article n'existera plus dans le Store
+    const deletedItem = await this.storeModel
+      .findByIdAndDelete(storeItemId)
+      .populate('userId', '-password -__v')
+      .populate('clothesId')
+      .exec();
+
+    if (!deletedItem) {
+      throw new NotFoundException("Erreur lors de la suppression de l'article");
+    }
+
+    // ✨ MODIFIÉ : Supprimer l'article de tous les paniers (acheteur + autres utilisateurs)
+    // Quand un article est acheté, il doit être retiré de tous les paniers
+    try {
+      if (this.cartService) {
+        const removedCount = await this.cartService.removeItemFromAllCarts(storeItemId);
+        console.log(`✅ Article retiré de ${removedCount} panier(s)`);
+      }
+    } catch (error) {
+      // Ne pas bloquer la transaction si la mise à jour du panier échoue
+      console.error('Erreur lors de la suppression de l\'article des paniers:', error);
+    }
+
+    // ✨ NOUVEAU : Supprimer l'article du dressing du vendeur (APRÈS avoir sauvegardé l'image dans Order)
+    try {
+      const clothesId = item.clothesId.toString();
+      const deletedClothes = await this.clothesModel.findByIdAndDelete(clothesId).exec();
+      if (deletedClothes) {
+        console.log(`✅ Article supprimé du dressing du vendeur: ${clothesId} (vendeur: ${sellerId})`);
+      } else {
+        console.warn(`⚠️ Article non trouvé dans le dressing: ${clothesId}`);
+      }
+    } catch (error) {
+      // Ne pas bloquer la transaction si la suppression du dressing échoue
+      console.error('Erreur lors de la suppression de l\'article du dressing:', error);
+    }
+
+    // ✨ MODIFIÉ : Retourner l'article supprimé (pour compatibilité avec l'API)
+    // Note: L'article n'existe plus dans le Store mais on retourne les données pour la réponse
+    return deletedItem as any;
   }
 }
