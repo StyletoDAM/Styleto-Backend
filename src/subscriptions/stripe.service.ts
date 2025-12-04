@@ -1,11 +1,12 @@
 // src/subscriptions/stripe.service.ts
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import Stripe from 'stripe';
 import { ConfigService } from '@nestjs/config';
 import { SubscriptionPlan } from './schemas/subscription.schema';
 
 @Injectable()
 export class StripeService {
+  private readonly logger = new Logger(StripeService.name);
   private stripe: Stripe;
   private webhookSecret: string;
 
@@ -14,7 +15,7 @@ export class StripeService {
     if (!key) throw new Error('STRIPE_SECRET_KEY missing in .env');
     
     this.stripe = new Stripe(key, { 
-        apiVersion: '2025-11-17.clover'
+      apiVersion: '2025-11-17.clover'
     });
     
     this.webhookSecret = this.configService.get<string>('STRIPE_WEBHOOK_SECRET') || '';
@@ -28,8 +29,15 @@ export class StripeService {
     plan: SubscriptionPlan,
     successUrl: string,
     cancelUrl: string,
-    userId?: string, // ✅ AJOUT pour webhook
+    userId?: string,
   ) {
+    this.logger.log(`Creating checkout session for plan: ${plan}, userId: ${userId}`);
+
+    // ✅ S'assurer que userId est bien une string
+    const userIdString = userId ? String(userId) : '';
+    
+    this.logger.log(`UserID converted to string: ${userIdString}`);
+
     // ✅ Prix en TND (affichage) → convertis en centimes USD pour Stripe
     const pricesInTND: Record<SubscriptionPlan, number> = {
       [SubscriptionPlan.FREE]: 0,
@@ -60,43 +68,48 @@ export class StripeService {
       [SubscriptionPlan.PRO_SELLER]: 'Toutes les fonctionnalités + Vente illimitée',
     };
 
-    // ✅ Création de la session Stripe
-    const session = await this.stripe.checkout.sessions.create({
-      payment_method_types: ['card'],
-      line_items: [
-        {
-          price_data: {
-            currency: 'usd', // ✅ Stripe Test ne supporte que USD/EUR/GBP
-            product_data: {
-              name: `${planNames[plan]} - ${pricesInTND[plan]} TND/mois`,
-              description: planDescriptions[plan],
-              images: ['https://i.imgur.com/EbQKFLt.png'], // Ton logo
+    try {
+      // ✅ Création de la session Stripe avec metadata en string
+      const session = await this.stripe.checkout.sessions.create({
+        payment_method_types: ['card'],
+        line_items: [
+          {
+            price_data: {
+              currency: 'usd',
+              product_data: {
+                name: `${planNames[plan]} - ${pricesInTND[plan]} TND/mois`,
+                description: planDescriptions[plan],
+                images: ['https://i.imgur.com/EbQKFLt.png'],
+              },
+              unit_amount: pricesInUSDCents[plan],
+              recurring: {
+                interval: 'month',
+              },
             },
-            unit_amount: pricesInUSDCents[plan],
-            recurring: {
-              interval: 'month',
-            },
+            quantity: 1,
           },
-          quantity: 1,
+        ],
+        mode: 'subscription',
+        success_url: successUrl,
+        cancel_url: cancelUrl,
+        metadata: {
+          plan: plan,
+          userId: userIdString, // ✅ Toujours une string
+          priceDisplayedTND: pricesInTND[plan].toString(),
         },
-      ],
-      mode: 'subscription',
-      success_url: successUrl,
-      cancel_url: cancelUrl,
-      metadata: {
-        plan: plan,
-        userId: userId || '', // ✅ Pour identifier l'utilisateur dans le webhook
-        priceDisplayedTND: pricesInTND[plan].toString(),
-      },
-      // ✅ MODE TEST : Permet d'utiliser 4242 4242 4242 4242
-      customer_email: undefined, // Optionnel : pré-remplir l'email
-    });
+      });
 
-    return { 
-      url: session.url, 
-      sessionId: session.id,
-      displayPrice: `${pricesInTND[plan]} TND/mois`, // ✅ Pour affichage frontend
-    };
+      this.logger.log(`Checkout session created: ${session.id}`);
+
+      return { 
+        url: session.url, 
+        sessionId: session.id,
+        displayPrice: `${pricesInTND[plan]} TND/mois`,
+      };
+    } catch (error) {
+      this.logger.error(`Error creating checkout session: ${error.message}`);
+      throw new BadRequestException(`Failed to create checkout session: ${error.message}`);
+    }
   }
 
   /**
@@ -104,7 +117,7 @@ export class StripeService {
    */
   constructWebhookEvent(payload: Buffer, signature: string): Stripe.Event {
     if (!this.webhookSecret) {
-      console.warn('⚠️ STRIPE_WEBHOOK_SECRET non défini, webhook non sécurisé');
+      this.logger.warn('⚠️ STRIPE_WEBHOOK_SECRET non défini, webhook non sécurisé');
       // En développement, on peut parser directement
       return JSON.parse(payload.toString()) as Stripe.Event;
     }
@@ -127,7 +140,7 @@ export class StripeService {
     const session = await this.stripe.checkout.sessions.retrieve(sessionId);
     
     return {
-      status: session.payment_status, // 'paid' ou 'unpaid'
+      status: session.payment_status,
       plan: session.metadata?.plan as SubscriptionPlan,
       userId: session.metadata?.userId,
       priceDisplayedTND: session.metadata?.priceDisplayedTND,
