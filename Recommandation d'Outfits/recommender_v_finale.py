@@ -420,7 +420,7 @@ def recommend_outfit(user_preference, simulated_weather, return_explanation=True
         if len(bottoms_candidats) == 0:
             missing.append("bottom")
             if len(footwear_candidats) == 0:
-            missing.append("footwear")
+                missing.append("footwear")
         
         safe_print(f"  ❌ Pas assez de vêtements avec le style '{pref}' pour créer un outfit complet.", file=sys.stderr)
         safe_print(f"  ❌ Catégories manquantes: {', '.join(missing)}", file=sys.stderr)
@@ -624,20 +624,20 @@ if __name__ == "__main__":
                 bottom_item.get("style", "").lower() == pref_lower and
                 footwear_item.get("style", "").lower() == pref_lower):
                 
-            # Retourner en JSON pour que NestJS puisse le parser
-            output = {
-                "success": True,
-                "outfit": result["outfit"],
-                "weather": result["weather"],
-                "season": result["season"],
-                "preference": args.preference,
-                "explanation": result["explanation"]
-            }
-            # IMPORTANT: Écrire le JSON dans stdout (pas stderr)
-            print(json.dumps(output))
-            sys.stdout.flush()  # Forcer l'écriture immédiate
-            safe_print("\n✅ Recommandation terminée avec succès", file=sys.stderr)
-            else:
+                # Retourner en JSON pour que NestJS puisse le parser
+                output = {  # ← Ajoutez l'indentation ici (4 espaces)
+                    "success": True,
+                    "outfit": result["outfit"],
+                    "weather": result["weather"],
+                    "season": result["season"],
+                    "preference": args.preference,
+                    "explanation": result["explanation"]
+                }
+                # IMPORTANT: Écrire le JSON dans stdout (pas stderr)
+                print(json.dumps(output))
+                sys.stdout.flush()  # Forcer l'écriture immédiate
+                safe_print("\n✅ Recommandation terminée avec succès", file=sys.stderr)
+            else:  # ← Ajoutez l'indentation correcte ici (0 espaces, au même niveau que le if)
                 # ✨ Si les styles ne correspondent pas, retourner une erreur
                 missing_styles = []
                 if not top_item or top_item.get("style", "").lower() != pref_lower:
