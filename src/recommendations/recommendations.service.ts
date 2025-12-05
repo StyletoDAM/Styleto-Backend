@@ -9,6 +9,7 @@ import { Clothes, ClothesDocument } from 'src/clothes/schemas/clothes.schema';
 import { spawn } from 'child_process';
 import { join } from 'path';
 import * as fs from 'fs';
+import axios from 'axios';
 
 @Injectable()
 export class RecommendationsService {
@@ -21,6 +22,26 @@ export class RecommendationsService {
   constructor(
     @InjectModel(Clothes.name) private clothesModel: Model<ClothesDocument>,
   ) {}
+
+  /**
+   * Récupère la météo réelle depuis l'API OpenWeatherMap
+   */
+  private async getWeatherFromAPI(city: string): Promise<{ temperature: number; condition: string }> {
+    try {
+      const API_KEY = 'a92f907ace22631f8af40374ae0b30b6'; // Clé OpenWeatherMap
+      const url = `https://api.openweathermap.org/data/2.5/weather?q=${city}&appid=${API_KEY}&units=metric`;
+      
+      const response = await axios.get(url, { timeout: 5000 });
+      const temp = response.data.main.temp;
+      const condition = response.data.weather[0].main;
+      
+      console.log(`   🌤️ Météo réelle récupérée depuis API: ${temp}°C, ${condition} (ville: ${city})`);
+      return { temperature: temp, condition };
+    } catch (error: any) {
+      console.error(`   ⚠️ Erreur API météo pour ${city}: ${error.message}. Utilisation de 20°C par défaut.`);
+      return { temperature: 20, condition: 'sunny' };
+    }
+  }
 
   async recommendOutfit(
     userId: string,
@@ -40,6 +61,19 @@ export class RecommendationsService {
       console.log(`   User ID: ${userId}`);
       console.log(`   Préférence: ${preference}`);
       console.log(`   Ville: ${city || 'Tunis'}`);
+
+      // ✨ NOUVEAU: Si temperature n'est pas fournie, la récupérer depuis l'API OpenWeather
+      let finalTemperature: number;
+      if (temperature !== undefined && temperature !== null) {
+        finalTemperature = temperature;
+        console.log(`   🌤️ Température fournie par l'utilisateur: ${finalTemperature}°C`);
+      } else {
+        const cityParam = city || 'Tunis';
+        console.log(`   🌤️ Récupération de la météo depuis l'API pour ${cityParam}...`);
+        const weather = await this.getWeatherFromAPI(cityParam);
+        finalTemperature = weather.temperature;
+        console.log(`   ✅ Température récupérée: ${finalTemperature}°C`);
+      }
 
       // ✨ NOUVEAU: Normaliser la préférence pour correspondre aux styles des vêtements
       const normalizedPreference = preference.toLowerCase().trim();
@@ -218,16 +252,17 @@ export class RecommendationsService {
       console.log(`   ✅ ${matchingStyleCount} vêtement(s) au total avec le style "${normalizedPreference}"`);
       
       // ✨ NOUVEAU: Calculer la saison à partir de la température (comme le script Python)
+      // Les seuils correspondent exactement à ceux du script Python recommender_v_finale.py
       const getSeasonFromTemperature = (temp: number | undefined): string => {
         if (temp === undefined) return 'summer'; // Défaut
-        if (temp > 20) return 'summer';
-        if (temp > 10) return 'spring';
+        if (temp > 25) return 'summer';  // ✨ Modifié: > 25 au lieu de > 20
+        if (temp > 17) return 'spring';  // ✨ Modifié: > 17 au lieu de > 10
         if (temp > 0) return 'fall';
         return 'winter';
       };
       
-      const targetSeason = getSeasonFromTemperature(temperature);
-      console.log(`   🌤️ Saison déterminée par météo: ${targetSeason} (temp: ${temperature || 'N/A'}°C)`);
+      const targetSeason = getSeasonFromTemperature(finalTemperature); // ✨ Utiliser finalTemperature au lieu de temperature
+      console.log(`   🌤️ Saison déterminée par météo: ${targetSeason} (temp: ${finalTemperature}°C)`);
       
       // ✨ NOUVEAU: Vérifier les vêtements par saison (météo)
       const matchesSeason = (itemSeason: string, target: string): boolean => {
@@ -333,12 +368,11 @@ export class RecommendationsService {
         this.pythonScriptPath,
         '--preference', normalizedPreference, // ✨ Utiliser la préférence normalisée
         '--city', cityParam,
+        '--temperature', finalTemperature.toString(), // ✨ TOUJOURS passer la température (récupérée depuis API si non fournie)
       ];
-      
-      if (temperature) {
-        args.push('--temperature', temperature.toString());
-      }
       args.push('--stdin'); // Flag pour indiquer qu'on utilise stdin
+      
+      console.log(`   🔄 Exécution du script Python avec température: ${finalTemperature}°C`);
       
       console.log(`   🔄 Exécution du script Python...`);
       console.log(`   Command: python3 ${args.join(' ')}`);

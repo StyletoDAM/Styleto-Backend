@@ -308,8 +308,8 @@ def is_compatible(color1, color2):
 # ============================================================
 def get_season_from_weather(temp):
     """ Traduit une température en saison. """
-    if temp > 20: return "summer"
-    elif temp > 10: return "spring" # (spring et fall partagent souvent les mêmes vêtements)
+    if temp > 25: return "summer"
+    elif temp > 17: return "spring" # (spring et fall partagent souvent les mêmes vêtements)
     elif temp > 0: return "fall"
     return "winter"
 
@@ -419,8 +419,8 @@ def recommend_outfit(user_preference, simulated_weather, return_explanation=True
             missing.append("top")
         if len(bottoms_candidats) == 0:
             missing.append("bottom")
-            if len(footwear_candidats) == 0:
-                missing.append("footwear")
+        if len(footwear_candidats) == 0:
+            missing.append("footwear")
         
         safe_print(f"  ❌ Pas assez de vêtements avec le style '{pref}' pour créer un outfit complet.", file=sys.stderr)
         safe_print(f"  ❌ Catégories manquantes: {', '.join(missing)}", file=sys.stderr)
