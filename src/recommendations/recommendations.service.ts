@@ -313,14 +313,7 @@ export class RecommendationsService {
         if (footwearWithStyle === 0) missingStyle.push('footwear');
         
         const itemNames = missingStyle.map(cat => cat === 'footwear' ? 'pair of shoes' : cat);
-        let errorMessage = `You don't have enough clothes for the "${normalizedPreference}" style. `;
-        if (missingStyle.length === 3) {
-          errorMessage += `Please add at least one top, one bottom, and one pair of shoes with the "${normalizedPreference}" style to your wardrobe.`;
-        } else if (missingStyle.length === 2) {
-          errorMessage += `You're missing ${itemNames.join(' and ')}. Please add at least one ${itemNames.join(' and one ')} with the "${normalizedPreference}" style.`;
-        } else {
-          errorMessage += `You're missing a ${itemNames[0]}. Please add at least one ${itemNames[0]} with the "${normalizedPreference}" style to your wardrobe.`;
-        }
+        let errorMessage = `Your wardrobe is missing items for the "${normalizedPreference}" style. Please add ${itemNames.length === 3 ? 'a top, a bottom, and a pair of shoes' : itemNames.length === 2 ? `a ${itemNames.join(' and a ')}` : `a ${itemNames[0]}`} to continue.`;
         throw new BadRequestException(errorMessage);
       }
       
@@ -332,14 +325,8 @@ export class RecommendationsService {
         if (footwearWithSeason === 0) missingSeason.push('footwear');
         
         const itemNames = missingSeason.map(cat => cat === 'footwear' ? 'pair of shoes' : cat);
-        let errorMessage = `You don't have enough clothes for the ${targetSeason} season (current weather). `;
-        if (missingSeason.length === 3) {
-          errorMessage += `Please add at least one top, one bottom, and one pair of shoes suitable for ${targetSeason} weather to your wardrobe.`;
-        } else if (missingSeason.length === 2) {
-          errorMessage += `You're missing ${itemNames.join(' and ')}. Please add at least one ${itemNames.join(' and one ')} suitable for ${targetSeason} weather.`;
-        } else {
-          errorMessage += `You're missing a ${itemNames[0]}. Please add at least one ${itemNames[0]} suitable for ${targetSeason} weather to your wardrobe.`;
-        }
+        const seasonName = targetSeason.charAt(0).toUpperCase() + targetSeason.slice(1); // Capitalize first letter
+        let errorMessage = `Your wardrobe is missing items for the ${seasonName} weather. Please add ${itemNames.length === 3 ? 'a top, a bottom, and a pair of shoes' : itemNames.length === 2 ? `a ${itemNames.join(' and a ')}` : `a ${itemNames[0]}`} to continue.`;
         throw new BadRequestException(errorMessage);
       }
       
@@ -351,14 +338,8 @@ export class RecommendationsService {
         if (footwearWithStyleAndSeason === 0) missingBoth.push('footwear');
         
         const itemNames = missingBoth.map(cat => cat === 'footwear' ? 'pair of shoes' : cat);
-        let errorMessage = `You don't have enough clothes for the "${normalizedPreference}" style AND the ${targetSeason} season (current weather). `;
-        if (missingBoth.length === 3) {
-          errorMessage += `Please add at least one top, one bottom, and one pair of shoes with the "${normalizedPreference}" style suitable for ${targetSeason} weather to your wardrobe.`;
-        } else if (missingBoth.length === 2) {
-          errorMessage += `You're missing ${itemNames.join(' and ')}. Please add at least one ${itemNames.join(' and one ')} with the "${normalizedPreference}" style suitable for ${targetSeason} weather.`;
-        } else {
-          errorMessage += `You're missing a ${itemNames[0]}. Please add at least one ${itemNames[0]} with the "${normalizedPreference}" style suitable for ${targetSeason} weather to your wardrobe.`;
-        }
+        const seasonName = targetSeason.charAt(0).toUpperCase() + targetSeason.slice(1); // Capitalize first letter
+        let errorMessage = `Your wardrobe is missing items for the "${normalizedPreference}" style and ${seasonName} weather. Please add ${itemNames.length === 3 ? 'a top, a bottom, and a pair of shoes' : itemNames.length === 2 ? `a ${itemNames.join(' and a ')}` : `a ${itemNames[0]}`} to continue.`;
         throw new BadRequestException(errorMessage);
       }
 
@@ -412,7 +393,8 @@ export class RecommendationsService {
         if (!errorMessage) {
           // Message générique si le script Python n'a pas fourni de message
           errorMessage = `Unable to generate a complete "${normalizedPreference}" outfit. `;
-          errorMessage += `Please make sure you have at least one top, one bottom, and one pair of shoes with the "${normalizedPreference}" style suitable for ${targetSeason} weather.`;
+          const seasonName = targetSeason.charAt(0).toUpperCase() + targetSeason.slice(1);
+          errorMessage = `Your wardrobe is missing items for the "${normalizedPreference}" style and ${seasonName} weather. Please add a top, a bottom, and a pair of shoes to continue.`;
         } else {
           // Si le script Python a fourni un message, le traduire en anglais user-friendly
           errorMessage = errorMessage
@@ -479,14 +461,8 @@ export class RecommendationsService {
         if (!footwearSeasonMatch) missingSeasonItems.push('footwear');
         
         const itemNames = missingSeasonItems.map(cat => cat === 'footwear' ? 'pair of shoes' : cat);
-        let errorMessage = `You don't have enough clothes for the ${targetSeason} season (current weather). `;
-        if (missingSeasonItems.length === 3) {
-          errorMessage += `Please add at least one top, one bottom, and one pair of shoes suitable for ${targetSeason} weather to your wardrobe.`;
-        } else if (missingSeasonItems.length === 2) {
-          errorMessage += `You're missing ${itemNames.join(' and ')}. Please add at least one ${itemNames.join(' and one ')} suitable for ${targetSeason} weather.`;
-        } else {
-          errorMessage += `You're missing a ${itemNames[0]}. Please add at least one ${itemNames[0]} suitable for ${targetSeason} weather to your wardrobe.`;
-        }
+        const seasonName = targetSeason.charAt(0).toUpperCase() + targetSeason.slice(1); // Capitalize first letter
+        let errorMessage = `Your wardrobe is missing items for the ${seasonName} weather. Please add ${itemNames.length === 3 ? 'a top, a bottom, and a pair of shoes' : itemNames.length === 2 ? `a ${itemNames.join(' and a ')}` : `a ${itemNames[0]}`} to continue.`;
         console.warn(`   ⚠️ Season mismatch détecté: top="${topSeason}", bottom="${bottomSeason}", footwear="${footwearSeason}", saison cible="${targetSeason}"`);
         throw new BadRequestException(errorMessage);
       }
