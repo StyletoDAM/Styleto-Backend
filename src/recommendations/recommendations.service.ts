@@ -15,7 +15,7 @@ import axios from 'axios';
 export class RecommendationsService {
   private readonly pythonScriptPath = join(
     process.cwd(),
-    'Recommandation d\'Outfits',
+    'AI-Models',
     'recommender_v_finale.py',
   );
 
@@ -52,7 +52,7 @@ export class RecommendationsService {
     // Vérifier que le script existe
     if (!fs.existsSync(this.pythonScriptPath)) {
       throw new BadRequestException(
-        'Script de recommandation introuvable. Vérifiez que le fichier recommender_v_finale.py existe dans le dossier "Recommandation d\'Outfits"',
+        'Script de recommandation introuvable. Vérifiez que le fichier recommender_v_finale.py existe dans le dossier "AI-Models"',
       );
     }
 
@@ -345,8 +345,9 @@ export class RecommendationsService {
 
       // 4. Exécuter le script Python avec les données via stdin
       const cityParam = city || 'Tunis';
+      // Utiliser un chemin relatif car le cwd sera AI-Models
       const args = [
-        this.pythonScriptPath,
+        'recommender_v_finale.py',
         '--preference', normalizedPreference, // ✨ Utiliser la préférence normalisée
         '--city', cityParam,
         '--temperature', finalTemperature.toString(), // ✨ TOUJOURS passer la température (récupérée depuis API si non fournie)
@@ -371,7 +372,7 @@ export class RecommendationsService {
           const moduleMatch = stderr.match(/No module named ['"]([^'"]+)['"]/);
           const moduleName = moduleMatch ? moduleMatch[1] : 'unknown';
           throw new BadRequestException(
-            `Module Python manquant: '${moduleName}'. Veuillez installer les dépendances avec: pip3 install -r "Recommandation d'Outfits/requirements.txt"`,
+            `Module Python manquant: '${moduleName}'. Veuillez installer les dépendances avec: pip3 install -r "AI-Models/requirements.txt"`,
           );
         }
         
@@ -558,8 +559,9 @@ export class RecommendationsService {
     timeout: number,
   ): Promise<{ stdout: string; stderr: string }> {
     return new Promise((resolve, reject) => {
+      const aiModelsDir = join(process.cwd(), 'AI-Models');
       const pythonProcess = spawn('python3', args, {
-        cwd: process.cwd(),
+        cwd: aiModelsDir,
         stdio: ['pipe', 'pipe', 'pipe'],
       });
 

@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
-import { extname } from 'path';
+import { extname, join } from 'path';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { v2 as cloudinary } from 'cloudinary';
@@ -47,9 +47,13 @@ export class DetectController {
       // ✨ ÉTAPE 1 : Supprime le background via API
       console.log('🔄 Suppression du background via API remove.bg...');
       
+      const removeBgScriptPath = join(process.cwd(), 'AI-Models', 'remove_bg_api.py');
+      const tempPathAbs = join(process.cwd(), tempPath);
+      const noBgPathAbs = join(process.cwd(), noBgPath);
+      
       try {
         const { stdout, stderr } = await execAsync(
-          `python3 remove_bg_api.py --input "${tempPath}" --output "${noBgPath}"`,
+          `python3 "${removeBgScriptPath}" --input "${tempPathAbs}" --output "${noBgPathAbs}"`,
         );
         
         console.log('✅ Background supprimé:', noBgPath);
@@ -78,8 +82,10 @@ export class DetectController {
       // ✨ ÉTAPE 3 : Détection IA sur l'image ORIGINALE
       // (La détection marche mieux avec le contexte du background)
       console.log('🤖 Détection IA...');
+      const detectScriptPath = join(process.cwd(), 'AI-Models', 'detect.py');
+      const aiModelsDir = join(process.cwd(), 'AI-Models');
       const { stdout: detectionOutput } = await execAsync(
-        `python3 detect.py --image "${tempPath}"`,
+        `cd "${aiModelsDir}" && python3 detect.py --image "${tempPathAbs}"`,
       );
       console.log('✅ Détection terminée');
 

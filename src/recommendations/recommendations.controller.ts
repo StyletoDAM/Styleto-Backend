@@ -179,7 +179,7 @@ export class RecommendationsController {
       type: 'object',
       example: {
         statusCode: 500,
-        message: 'Script de recommandation introuvable. Vérifiez que le fichier recommender_v_finale.py existe dans le dossier "Recommandation d\'Outfits"',
+        message: 'Script de recommandation introuvable. Vérifiez que le fichier recommender_v_finale.py existe dans le dossier "AI-Models"',
         error: 'Internal Server Error',
       },
     },
