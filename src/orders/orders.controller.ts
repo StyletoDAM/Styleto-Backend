@@ -147,5 +147,37 @@ export class OrdersController {
   async findAll(@GetUser() user: any) {
     return await this.ordersService.findAll(user.id);
   }
+
+  @Get('transactions')
+  @ApiOperation({
+    summary: 'Get transaction history for the authenticated user',
+    description: 'Retrieve all transactions (purchases, sales, top-ups) for the currently authenticated user. Transactions are sorted by date (newest first).',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'List of transactions retrieved successfully',
+    schema: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          _id: { type: 'string', example: '507f1f77bcf86cd799439012' },
+          type: { type: 'string', enum: ['incoming', 'outgoing'], example: 'outgoing' },
+          amount: { type: 'number', example: 99.99 },
+          description: { type: 'string', example: 'Achat de vêtement' },
+          date: { type: 'string', format: 'date-time', example: '2025-11-28T12:00:00.000Z' },
+          paymentMethod: { type: 'string', example: 'balance' },
+          createdAt: { type: 'string', format: 'date-time' },
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized - Missing or invalid token',
+  })
+  async getTransactions(@GetUser() user: any) {
+    return await this.ordersService.getTransactionsHistory(user.id);
+  }
 }
 
