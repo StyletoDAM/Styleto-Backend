@@ -22,6 +22,7 @@ import Joi from 'joi';
 import { ScheduleModule } from '@nestjs/schedule';
 import * as cron from 'node-cron';
 import { ClothesService } from './clothes/clothes.service';
+import { AIEngineModule } from './ai-engine/ai-engine.module';
 
 @Module({
   imports: [
@@ -84,7 +85,8 @@ import { ClothesService } from './clothes/clothes.service';
     SubscriptionsModule,
     OrdersModule,
     RecommendationsModule,
-    CartModule, // ✨ NOUVEAU : Module panier
+    CartModule,
+    AIEngineModule, 
   ],
   controllers: [AppController],
   providers: [AppService],

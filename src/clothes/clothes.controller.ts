@@ -1,3 +1,4 @@
+// src/clothes/clothes.controller.ts
 import {
   Controller,
   Get,
@@ -11,8 +12,8 @@ import {
   NotFoundException,
   BadRequestException,
   UseGuards,
-  Req,
   UnauthorizedException,
+  Query,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -33,30 +34,179 @@ import { GetUser } from 'src/common/decorators/get-user.decorator';
 @ApiTags('Clothes')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard)
-@Controller('cloth')
+@Controller('clothes')
 export class ClothController {
   constructor(private readonly clothService: ClothesService) {}
 
   // ==========================================
-  // ROUTES SPÉCIFIQUES EN PREMIER
+  // ROUTES VTO - NOUVELLES (EN PREMIER)
   // ==========================================
-  
-  @Post()
-@HttpCode(HttpStatus.CREATED)
-@ApiOperation({ summary: 'Create a new clothing item (user from JWT)' })
-async create(@Body() createClothDto: CreateClotheDto, @GetUser() user: any) {
-  if (!user?.id) {
-    throw new UnauthorizedException('Utilisateur non authentifié');
+
+  /**
+   * GET /clothes/my
+   * Récupère tous les vêtements de l'utilisateur connecté
+   */
+  @Get('my')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Récupérer tous mes vêtements' })
+  async getMyClothes(@GetUser() user: any) {
+    if (!user?.id) {
+      throw new UnauthorizedException('Utilisateur non authentifié');
+    }
+
+    const clothes = await this.clothService.findAllByUser(user.id);
+    return {
+      success: true,
+      count: clothes.length,
+      data: clothes,
+    };
   }
 
-  // IMPORTANT : on ajoute l'userId provenant du JWT
-  const result = await this.clothService.create({
-    ...createClothDto,
-    userId: user.id,
-  });
+  /**
+   * GET /clothes/my/category/:category
+   * Récupère les vêtements par catégorie
+   */
+  @Get('my/category/:category')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Récupérer mes vêtements par catégorie' })
+  @ApiParam({ name: 'category', description: 'Catégorie du vêtement' })
+  async getMyClothesByCategory(
+    @GetUser() user: any,
+    @Param('category') category: string,
+  ) {
+    if (!user?.id) {
+      throw new UnauthorizedException('Utilisateur non authentifié');
+    }
 
-  return result; // ← obligatoire pour avoir le JSON en réponse
-}
+    const clothes = await this.clothService.findByUserAndCategory(
+      user.id,
+      category,
+    );
+    return {
+      success: true,
+      count: clothes.length,
+      data: clothes,
+    };
+  }
+
+  /**
+   * GET /clothes/vto/ready
+   * Récupère uniquement les vêtements PRÊTS pour le VTO
+   * (images détourées et disponibles)
+   */
+  @Get('vto/ready')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ 
+    summary: 'Récupérer les vêtements prêts pour le Virtual Try-On',
+    description: 'Retourne uniquement les vêtements dont les images ont été traitées et sont prêtes pour le VTO'
+  })
+  async getVTOReadyClothes(@GetUser() user: any) {
+    if (!user?.id) {
+      throw new UnauthorizedException('Utilisateur non authentifié');
+    }
+
+    const clothes = await this.clothService.findReadyForVTO(user.id);
+
+    // Grouper par catégorie pour faciliter l'affichage client
+    const grouped = clothes.reduce((acc, cloth) => {
+      const category = cloth.category.toLowerCase();
+      if (!acc[category]) {
+        acc[category] = [];
+      }
+      acc[category].push({
+        id: cloth._id,
+        imageURL: cloth.imageURL,
+        processedImageURL: cloth.processedImageURL,
+        category: cloth.category,
+        color: cloth.color,
+        style: cloth.style,
+      });
+      return acc;
+    }, {});
+
+    return {
+      success: true,
+      totalItems: clothes.length,
+      data: grouped,
+    };
+  }
+
+  /**
+   * POST /clothes/vto/batch
+   * Récupère plusieurs vêtements par leurs IDs (pour le VTO)
+   */
+  @Post('vto/batch')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ 
+    summary: 'Récupérer plusieurs vêtements par IDs',
+    description: 'Utilisé par le VTO pour récupérer les détails de plusieurs vêtements à la fois'
+  })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        clothingIds: {
+          type: 'array',
+          items: { type: 'string' },
+          example: ['507f1f77bcf86cd799439011', '507f1f77bcf86cd799439012']
+        }
+      }
+    }
+  })
+  async getBatchClothes(
+    @Body() body: { clothingIds: string[] },
+    @GetUser() user: any,
+  ) {
+    if (!user?.id) {
+      throw new UnauthorizedException('Utilisateur non authentifié');
+    }
+
+    if (!body.clothingIds || !Array.isArray(body.clothingIds)) {
+      throw new BadRequestException('clothingIds doit être un tableau');
+    }
+
+    const clothes = await this.clothService.findManyByIds(
+      body.clothingIds,
+      user.id,
+    );
+
+    return {
+      success: true,
+      count: clothes.length,
+      data: clothes,
+    };
+  }
+
+  /**
+   * POST /clothes/:id/reprocess
+   * Relance le traitement d'une image (si échoué)
+   */
+  @Post(':id/reprocess')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ 
+    summary: 'Relancer le traitement d\'une image',
+    description: 'Utilisé si le traitement initial a échoué ou si l\'utilisateur veut retraiter l\'image'
+  })
+  @ApiParam({ name: 'id', description: 'ID du vêtement' })
+  async reprocessClothing(
+    @Param('id') id: string,
+    @GetUser() user: any,
+  ) {
+    if (!user?.id) {
+      throw new UnauthorizedException('Utilisateur non authentifié');
+    }
+
+    const clothing = await this.clothService.reprocessClothingImage(id, user.id);
+    return {
+      success: true,
+      message: 'Traitement relancé',
+      data: clothing,
+    };
+  }
+
+  // ==========================================
+  // ROUTES EXISTANTES - CONSERVÉES
+  // ==========================================
 
   @Get('corrections')
   @HttpCode(HttpStatus.OK)
@@ -82,11 +232,9 @@ async create(@Body() createClothDto: CreateClotheDto, @GetUser() user: any) {
     return await this.clothService.getUserStats(user.id);
   }
 
-  // ✅ DÉPLACÉ ICI - AVANT @Get(':id')
   @Get('sell-suggestions')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Obtenir les vêtements à vendre (rejetés plusieurs fois)' })
-  @ApiBearerAuth()
   async getSellSuggestions(@GetUser() user: any) {
     if (!user?.id) {
       throw new UnauthorizedException('Utilisateur non authentifié');
@@ -94,41 +242,49 @@ async create(@Body() createClothDto: CreateClotheDto, @GetUser() user: any) {
     return await this.clothService.getSellSuggestions(user.id);
   }
 
-  @Get('my')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Récupérer mes vêtements' })
-  async findMyClothes(@GetUser() user: any) {
+  @Post()
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'Créer un nouveau vêtement' })
+  async create(@Body() createClothDto: CreateClotheDto, @GetUser() user: any) {
     if (!user?.id) {
       throw new UnauthorizedException('Utilisateur non authentifié');
     }
-    return await this.clothService.findByUserId(user.id);
-  }
 
-  // ==========================================
-  // ROUTES GÉNÉRIQUES EN DERNIER
-  // ==========================================
+    const result = await this.clothService.create({
+      ...createClothDto,
+      userId: user.id,
+    });
+
+    return result;
+  }
 
   @Get()
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Retrieve all clothing items' })
+  @ApiOperation({ summary: 'Récupérer tous les vêtements (admin)' })
   async findAll() {
     return await this.clothService.findAll();
   }
 
-  // ⚠️ Cette route doit être EN DERNIER parmi les GET
   @Get(':id')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Get a clothing item by ID' })
-  async findOne(@Param('id') id: string) {
-    const cloth = await this.clothService.findOne(id);
-    if (!cloth)
-      throw new NotFoundException(`No clothing item found with ID ${id}`);
-    return cloth;
+  @ApiOperation({ summary: 'Récupérer un vêtement par ID' })
+  @ApiParam({ name: 'id', description: 'ID du vêtement' })
+  async findOne(@Param('id') id: string, @GetUser() user: any) {
+    if (!user?.id) {
+      throw new UnauthorizedException('Utilisateur non authentifié');
+    }
+
+    const cloth = await this.clothService.findOneByIdAndUser(id, user.id);
+    return {
+      success: true,
+      data: cloth,
+    };
   }
 
   @Patch(':id')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Update an existing clothing item' })
+  @ApiOperation({ summary: 'Mettre à jour un vêtement' })
+  @ApiParam({ name: 'id', description: 'ID du vêtement' })
   async update(
     @Param('id') id: string,
     @Body() updateClothDto: UpdateClotheDto,
@@ -143,6 +299,7 @@ async create(@Body() createClothDto: CreateClotheDto, @GetUser() user: any) {
   @Patch(':id/feedback')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Incrémenter acceptedCount ou rejectedCount' })
+  @ApiParam({ name: 'id', description: 'ID du vêtement' })
   async updateFeedback(
     @Param('id') id: string,
     @Body('accepted') accepted: boolean,
@@ -156,17 +313,15 @@ async create(@Body() createClothDto: CreateClotheDto, @GetUser() user: any) {
 
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: 'Supprimer un de MES vêtements' })
+  @ApiOperation({ summary: 'Supprimer un de mes vêtements' })
+  @ApiParam({ name: 'id', description: 'ID du vêtement' })
   async removeMyClothe(@Param('id') id: string, @GetUser() user: any) {
     if (!user?.id) {
       throw new UnauthorizedException('Utilisateur non authentifié');
     }
-    const success = await this.clothService.removeMyClothe(id, user.id);
-    if (!success) {
-      throw new NotFoundException(
-        "Vêtement non trouvé ou vous n'êtes pas autorisé à le supprimer",
-      );
-    }
+
+    // Utiliser la nouvelle méthode deleteClothing pour VTO
+    await this.clothService.deleteClothing(id, user.id);
     return;
   }
 }

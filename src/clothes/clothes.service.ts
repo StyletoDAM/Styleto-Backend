@@ -1,7 +1,9 @@
+// src/clothes/clothes.service.ts
 import {
   Injectable,
   NotFoundException,
   ForbiddenException,
+  Logger,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
@@ -10,15 +12,18 @@ import { CreateClotheDto } from './dto/create-clothe.dto';
 import { UpdateClotheDto } from './dto/update-clothe.dto';
 import { User } from 'src/user/schemas/user.schema';
 import { UserPreferencesService } from './services/user-preferences.service';
-import { SubscriptionsService } from '../subscriptions/subscriptions.service'; // ✨ NOUVEAU
+import { SubscriptionsService } from '../subscriptions/subscriptions.service';
+import axios from 'axios';
 
 @Injectable()
 export class ClothesService {
+  private readonly logger = new Logger(ClothesService.name);
+
   constructor(
     @InjectModel(Clothes.name) private clothesModel: Model<ClothesDocument>,
     @InjectModel(User.name) private userModel: Model<Document>,
     private userPreferencesService: UserPreferencesService,
-    private subscriptionsService: SubscriptionsService, // ✨ NOUVEAU
+    private subscriptionsService: SubscriptionsService,
   ) {}
 
   // Vérifie si un utilisateur existe avant d'associer un vêtement
@@ -34,11 +39,274 @@ export class ClothesService {
     return user;
   }
 
-  // CREATE : avec vérification de la clé étrangère ET DU QUOTA ✨
+  // ==========================================
+  // MÉTHODES VTO - NOUVELLES
+  // ==========================================
+
+  /**
+   * Récupère tous les vêtements d'un utilisateur
+   * Remplace findByUserId mais conserve la même logique
+   */
+  async findAllByUser(userId: string): Promise<ClothesDocument[]> {
+    console.log('findAllByUser called with:', userId);
+    if (!Types.ObjectId.isValid(userId)) {
+      throw new ForbiddenException('Invalid user ID format');
+    }
+
+    return await this.clothesModel
+      .find({ userId: new Types.ObjectId(userId) })
+      .populate('userId', '-password -__v')
+      .exec();
+  }
+
+  /**
+   * Récupère les vêtements d'un utilisateur par catégorie
+   */
+  async findByUserAndCategory(
+    userId: string,
+    category: string,
+  ): Promise<ClothesDocument[]> {
+    if (!Types.ObjectId.isValid(userId)) {
+      throw new ForbiddenException('Invalid user ID format');
+    }
+
+    return this.clothesModel
+      .find({
+        userId: new Types.ObjectId(userId),
+        category: category,
+      })
+      .exec();
+  }
+
+  /**
+   * Récupère uniquement les vêtements PRÊTS pour le VTO
+   */
+  async findReadyForVTO(userId: string): Promise<ClothesDocument[]> {
+    if (!Types.ObjectId.isValid(userId)) {
+      throw new ForbiddenException('Invalid user ID format');
+    }
+
+    return this.clothesModel
+      .find({
+        userId: new Types.ObjectId(userId),
+        processingStatus: 'ready',
+        processedImageURL: { $exists: true, $ne: null },
+      })
+      .exec();
+  }
+
+  /**
+   * Récupère un vêtement par ID (avec vérification du propriétaire)
+   */
+  async findOneByIdAndUser(
+    clothingId: string,
+    userId: string,
+  ): Promise<ClothesDocument> {
+    if (!Types.ObjectId.isValid(clothingId) || !Types.ObjectId.isValid(userId)) {
+      throw new ForbiddenException('Invalid ID format');
+    }
+
+    const clothing = await this.clothesModel.findOne({
+      _id: new Types.ObjectId(clothingId),
+      userId: new Types.ObjectId(userId),
+    });
+
+    if (!clothing) {
+      throw new NotFoundException('Vêtement introuvable ou non autorisé');
+    }
+
+    return clothing;
+  }
+
+  /**
+   * Récupère plusieurs vêtements par leurs IDs (pour le VTO)
+   */
+  async findManyByIds(
+    clothingIds: string[],
+    userId: string,
+  ): Promise<ClothesDocument[]> {
+    if (!Types.ObjectId.isValid(userId)) {
+      throw new ForbiddenException('Invalid user ID format');
+    }
+
+    const objectIds = clothingIds.map((id) => {
+      if (!Types.ObjectId.isValid(id)) {
+        throw new ForbiddenException(`Invalid clothing ID: ${id}`);
+      }
+      return new Types.ObjectId(id);
+    });
+
+    return this.clothesModel
+      .find({
+        _id: { $in: objectIds },
+        userId: new Types.ObjectId(userId),
+        processingStatus: 'ready', // Seulement les vêtements prêts
+      })
+      .exec();
+  }
+
+  /**
+   * Traite une image de vêtement (détourage)
+   * Cette fonction appelle le service Python pour enlever le fond
+   */
+  async processClothingImage(clothingId: string): Promise<void> {
+    try {
+      const clothing = await this.clothesModel.findById(clothingId);
+      if (!clothing) {
+        throw new NotFoundException('Vêtement introuvable');
+      }
+
+      // Marquer comme "en traitement"
+      clothing.processingStatus = 'processing';
+      clothing.processingError = undefined;
+      await clothing.save();
+
+      this.logger.log(
+        `🔄 Traitement de l'image ${clothingId} (${clothing.category})...`,
+      );
+
+      // Appeler le service Python pour enlever le fond
+      const pythonServiceUrl =
+        process.env.AI_SERVICE_URL || 'http://127.0.0.1:5001';
+
+      const response = await axios.post(
+        `${pythonServiceUrl}/process-clothing`,
+        {
+          imageURL: clothing.imageURL,
+          category: clothing.category,
+        },
+        { timeout: 30000 }, // 30 secondes max
+      );
+
+      if (response.data.success && response.data.processedImageURL) {
+        // Sauvegarder l'URL de l'image détourée
+        clothing.processedImageURL = response.data.processedImageURL;
+        clothing.isProcessed = true;
+        clothing.processingStatus = 'ready';
+        clothing.processingError = undefined;
+
+        await clothing.save();
+
+        this.logger.log(
+          `✅ Image ${clothingId} traitée avec succès: ${response.data.processedImageURL}`,
+        );
+      } else {
+        throw new Error(
+          response.data.error || 'Échec du traitement sans erreur',
+        );
+      }
+    } catch (error) {
+      this.logger.error(
+        `❌ Erreur traitement image ${clothingId}: ${error.message}`,
+      );
+
+      // Marquer comme échoué
+      await this.clothesModel.findByIdAndUpdate(clothingId, {
+        processingStatus: 'failed',
+        processingError: error.message,
+      });
+    }
+  }
+
+  /**
+   * Retraite une image (si le traitement a échoué)
+   */
+  async reprocessClothingImage(
+    clothingId: string,
+    userId: string,
+  ): Promise<ClothesDocument> {
+    const clothing = await this.findOneByIdAndUser(clothingId, userId);
+
+    // Réinitialiser le statut
+    clothing.processingStatus = 'pending';
+    clothing.processedImageURL = undefined;
+    clothing.isProcessed = false;
+    clothing.processingError = undefined;
+    await clothing.save();
+
+    // Relancer le traitement
+    this.processClothingImage(clothingId).catch((err) => {
+      this.logger.error(`Erreur retraitement: ${err.message}`);
+    });
+
+    return clothing;
+  }
+
+  /**
+   * Supprimer un vêtement (sans Cloudinary pour l'instant)
+   */
+  async deleteClothing(clothingId: string, userId: string): Promise<void> {
+    const clothing = await this.findOneByIdAndUser(clothingId, userId);
+
+    // TODO: Ajouter la suppression Cloudinary si nécessaire
+    // Pour l'instant, on supprime juste de la BD
+    await this.clothesModel.findByIdAndDelete(clothingId);
+    
+    this.logger.log(`🗑️  Vêtement ${clothingId} supprimé`);
+  }
+
+  /**
+   * Retraite TOUS les vêtements d'un utilisateur
+   * Utile pour traiter les vêtements existants après migration
+   */
+  async reprocessAllUserClothes(userId: string): Promise<{
+    total: number;
+    queued: number;
+  }> {
+    if (!Types.ObjectId.isValid(userId)) {
+      throw new ForbiddenException('Invalid user ID format');
+    }
+
+    const clothes = await this.clothesModel
+      .find({
+        userId: new Types.ObjectId(userId),
+        $or: [
+          { processingStatus: { $in: ['pending', 'failed'] } },
+          { processedImageURL: null },
+        ],
+      })
+      .exec();
+
+    const total = clothes.length;
+    let queued = 0;
+
+    // Traiter en série pour ne pas surcharger le serveur Python
+    for (const cloth of clothes) {
+      try {
+        cloth.processingStatus = 'pending';
+        await cloth.save();
+
+        // Lancer le traitement (non-bloquant)
+        const clothId = String(cloth._id);
+        this.processClothingImage(clothId).catch((err) => {
+          this.logger.error(
+            `Erreur traitement ${clothId}: ${err.message}`,
+          );
+        });
+
+        queued++;
+
+        // Attendre 500ms entre chaque traitement
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      } catch (error) {
+        this.logger.error(
+          `Erreur ajout à la queue ${cloth._id}: ${error.message}`,
+        );
+      }
+    }
+
+    return { total, queued };
+  }
+
+  // ==========================================
+  // MÉTHODES EXISTANTES - CONSERVÉES
+  // ==========================================
+
+  // CREATE : avec vérification de la clé étrangère ET DU QUOTA + traitement VTO
   async create(
     createClothesDto: CreateClotheDto & { userId: string },
   ): Promise<Clothes> {
-    // ✨ NOUVEAU : Vérifier le quota AVANT de créer
+    // Vérifier le quota AVANT de créer
     const quotaCheck = await this.subscriptionsService.canDetectClothes(
       createClothesDto.userId,
     );
@@ -55,14 +323,23 @@ export class ClothesService {
     const newClothes = new this.clothesModel({
       ...createClothesDto,
       userId: new Types.ObjectId(createClothesDto.userId),
+      processingStatus: 'pending', // ✨ NOUVEAU
     });
 
     const savedClothes = await newClothes.save();
 
-    // ✨ NOUVEAU : Incrémenter le compteur APRÈS la création réussie
+    // Incrémenter le compteur APRÈS la création réussie
     await this.subscriptionsService.incrementClothesDetection(
       createClothesDto.userId,
     );
+
+    // ✨ NOUVEAU : Lancer le traitement VTO en arrière-plan (non-bloquant)
+    const savedClothesId = String(savedClothes._id);
+    this.processClothingImage(savedClothesId).catch((err) => {
+      this.logger.error(
+        `Erreur traitement image ${savedClothesId}: ${err.message}`,
+      );
+    });
 
     // Si c'est une correction, met à jour les préférences utilisateur
     if (savedClothes.isCorrected && savedClothes.originalDetection) {
@@ -79,12 +356,12 @@ export class ClothesService {
     return savedClothes;
   }
 
-  // ✨ NOUVEAU : Trouver tous les vêtements corrigés pour fine-tuning
+  // Trouver tous les vêtements corrigés pour fine-tuning
   async findCorrected(): Promise<Clothes[]> {
     return await this.clothesModel.find({ isCorrected: true }).exec();
   }
 
-  // ✨ NOUVEAU : Stats globales pour dashboard admin
+  // Stats globales pour dashboard admin
   async getGlobalCorrectionStats() {
     const totalCorrections = await this.clothesModel
       .countDocuments({ isCorrected: true })
@@ -94,21 +371,18 @@ export class ClothesService {
       .distinct('userId', { isCorrected: true })
       .exec();
 
-    // Groupement par catégorie
     const byCategory = await this.clothesModel.aggregate([
       { $match: { isCorrected: true } },
       { $group: { _id: '$category', count: { $sum: 1 } } },
       { $project: { category: '$_id', count: 1, _id: 0 } },
     ]);
 
-    // Groupement par style
     const byStyle = await this.clothesModel.aggregate([
       { $match: { isCorrected: true } },
       { $group: { _id: '$style', count: { $sum: 1 } } },
       { $project: { style: '$_id', count: 1, _id: 0 } },
     ]);
 
-    // Groupement par saison
     const bySeason = await this.clothesModel.aggregate([
       { $match: { isCorrected: true } },
       { $group: { _id: '$season', count: { $sum: 1 } } },
@@ -130,21 +404,18 @@ export class ClothesService {
     };
   }
 
-  // ✨ NOUVEAU : Stats personnelles pour un utilisateur
+  // Stats personnelles pour un utilisateur
   async getUserStats(userId: string) {
     const userObjectId = new Types.ObjectId(userId);
 
-    // Corrections de cet utilisateur
     const userCorrections = await this.clothesModel
       .countDocuments({ userId: userObjectId, isCorrected: true })
       .exec();
 
-    // Total corrections globales
     const globalCorrections = await this.clothesModel
       .countDocuments({ isCorrected: true })
       .exec();
 
-    // Préférences de l'utilisateur
     const prefs = await this.userPreferencesService.getPreferences(userId);
 
     return {
@@ -165,7 +436,7 @@ export class ClothesService {
     };
   }
 
-  //  GET ALL
+  // GET ALL
   async findAll(): Promise<Clothes[]> {
     return await this.clothesModel
       .find()
@@ -173,7 +444,7 @@ export class ClothesService {
       .exec();
   }
 
-  //  GET ONE
+  // GET ONE
   async findOne(id: string): Promise<Clothes> {
     if (!Types.ObjectId.isValid(id)) {
       throw new ForbiddenException(`Invalid clothes ID format`);
@@ -191,7 +462,7 @@ export class ClothesService {
     return clothes;
   }
 
-  //  UPDATE
+  // UPDATE
   async update(
     id: string,
     updateClothesDto: UpdateClotheDto,
@@ -200,7 +471,6 @@ export class ClothesService {
       throw new ForbiddenException(`Invalid clothes ID format`);
     }
 
-    // Si on change le userId, on vérifie qu'il existe
     if (updateClothesDto.userId) {
       await this.verifyUserExists(updateClothesDto.userId);
     }
@@ -216,7 +486,7 @@ export class ClothesService {
     return updated;
   }
 
-  //  DELETE
+  // DELETE
   async remove(id: string): Promise<Clothes> {
     if (!Types.ObjectId.isValid(id)) {
       throw new ForbiddenException(`Invalid clothes ID format`);
@@ -231,16 +501,9 @@ export class ClothesService {
     return deleted;
   }
 
+  // Conservé pour compatibilité avec le code existant
   async findByUserId(userId: string): Promise<Clothes[]> {
-    console.log('findByUserId called with:', userId);
-    if (!Types.ObjectId.isValid(userId)) {
-      throw new ForbiddenException('Invalid user ID format');
-    }
-
-    return await this.clothesModel
-      .find({ userId: new Types.ObjectId(userId) })
-      .populate('userId', '-password -__v')
-      .exec();
+    return this.findAllByUser(userId);
   }
 
   // Supprimer uniquement si le vêtement appartient à l'utilisateur
@@ -258,32 +521,37 @@ export class ClothesService {
 
     return result.deletedCount > 0;
   }
-  //Mettre à jour le feedback (acceptedCount / rejectedCount)
-  async updateFeedback(clotheId: string, accepted: boolean, userId: string): Promise<Clothes> {
+
+  // Mettre à jour le feedback (acceptedCount / rejectedCount)
+  async updateFeedback(
+    clotheId: string,
+    accepted: boolean,
+    userId: string,
+  ): Promise<Clothes> {
     if (!Types.ObjectId.isValid(clotheId)) {
       throw new ForbiddenException('Invalid clothe ID format');
     }
 
-    // Vérifier que le vêtement appartient à l'utilisateur
-    const clothe = await this.clothesModel.findOne({
-      _id: new Types.ObjectId(clotheId),
-      userId: new Types.ObjectId(userId),
-    }).exec();
+    const clothe = await this.clothesModel
+      .findOne({
+        _id: new Types.ObjectId(clotheId),
+        userId: new Types.ObjectId(userId),
+      })
+      .exec();
 
     if (!clothe) {
       throw new NotFoundException(
-        'Vêtement non trouvé ou vous n\'êtes pas autorisé à le modifier',
+        "Vêtement non trouvé ou vous n'êtes pas autorisé à le modifier",
       );
     }
 
-    // Incrémenter le compteur approprié
     const updateField = accepted ? 'acceptedCount' : 'rejectedCount';
-    
+
     const updated = await this.clothesModel
       .findByIdAndUpdate(
         clotheId,
         { $inc: { [updateField]: 1 } },
-        { new: true }
+        { new: true },
       )
       .exec();
 
@@ -291,30 +559,27 @@ export class ClothesService {
       throw new NotFoundException(`Clothe with ID ${clotheId} not found`);
     }
 
-    console.log(`✅ ${updateField} incrémenté pour ${clotheId}: ${updated[updateField]}`);
-    
     return updated;
   }
+
   // Obtenir les vêtements avec beaucoup de rejets (suggestions de vente)
-async getSellSuggestions(userId: string): Promise<Clothes[]> {
-  if (!Types.ObjectId.isValid(userId)) {
-    throw new ForbiddenException('Invalid user ID format');
+  async getSellSuggestions(userId: string): Promise<Clothes[]> {
+    if (!Types.ObjectId.isValid(userId)) {
+      throw new ForbiddenException('Invalid user ID format');
+    }
+
+    const suggestions = await this.clothesModel
+      .find({
+        userId: new Types.ObjectId(userId),
+        rejectedCount: { $gte: 3 },
+      })
+      .exec();
+
+    return suggestions.filter((cloth) => {
+      const total = cloth.acceptedCount + cloth.rejectedCount;
+      if (total === 0) return false;
+      const rejectRatio = cloth.rejectedCount / total;
+      return rejectRatio > 0.6;
+    });
   }
-
-  // Vêtements avec au moins 3 rejets ET ratio rejet > 60%
-  const suggestions = await this.clothesModel
-    .find({
-      userId: new Types.ObjectId(userId),
-      rejectedCount: { $gte: 3 }, // Au moins 3 rejets
-    })
-    .exec();
-
-  // Filtrer par ratio de rejet
-  return suggestions.filter(cloth => {
-    const total = cloth.acceptedCount + cloth.rejectedCount;
-    if (total === 0) return false;
-    const rejectRatio = cloth.rejectedCount / total;
-    return rejectRatio > 0.6; // Plus de 60% de rejets
-  });
-}
 }
