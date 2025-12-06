@@ -33,33 +33,24 @@ export class WebhookController {
     let event: Stripe.Event;
 
     try {
-      // ✅ SOLUTION ROBUSTE pour Render et toutes les plateformes
       let rawBody: Buffer;
 
-      // Cas 1: req.rawBody existe (configuration NestJS avec rawBody: true)
       if (req.rawBody) {
         rawBody = req.rawBody;
         this.logger.log('📦 [WEBHOOK] Using req.rawBody');
-      }
-      // Cas 2: req.body est déjà un Buffer (middleware raw())
-      else if (Buffer.isBuffer(req.body)) {
+      } else if (Buffer.isBuffer(req.body)) {
         rawBody = req.body;
         this.logger.log('📦 [WEBHOOK] Using req.body as Buffer');
-      }
-      // Cas 3: req.body est une string
-      else if (typeof req.body === 'string') {
+      } else if (typeof req.body === 'string') {
         rawBody = Buffer.from(req.body);
         this.logger.log('📦 [WEBHOOK] Converting req.body string to Buffer');
-      }
-      // Cas 4: req.body est un objet (déjà parsé)
-      else {
+      } else {
         rawBody = Buffer.from(JSON.stringify(req.body));
         this.logger.log('📦 [WEBHOOK] Converting req.body object to Buffer');
       }
 
       this.logger.log(`📦 [WEBHOOK] Body length: ${rawBody.length} bytes`);
 
-      // Vérifier la signature Stripe
       event = this.stripeService.constructWebhookEvent(rawBody, signature);
 
       this.logger.log(`✅ [WEBHOOK] Event verified: ${event.type}`);
@@ -69,7 +60,6 @@ export class WebhookController {
       return res.status(400).send(`Webhook Error: ${err.message}`);
     }
 
-    // Traiter l'événement
     try {
       await this.processWebhookEvent(event);
       
@@ -78,7 +68,6 @@ export class WebhookController {
     } catch (error) {
       this.logger.error(`❌ [WEBHOOK] Processing error: ${error.message}`);
       this.logger.error(`   Stack: ${error.stack}`);
-      // Retourner 200 pour éviter les retry infinis de Stripe
       return res.status(200).json({ received: true, error: error.message });
     }
   }
@@ -210,8 +199,9 @@ export class WebhookController {
     }
 
     try {
+      // ✨ Passer au plan FREE (les compteurs seront automatiquement reset dans upgradePlan)
       await this.subscriptionsService.upgradePlan(userId, SubscriptionPlan.FREE);
-      this.logger.log(`✅ [WEBHOOK] User ${userId} downgraded to FREE`);
+      this.logger.log(`✅ [WEBHOOK] User ${userId} downgraded to FREE with counters reset`);
     } catch (error) {
       this.logger.error(`❌ [WEBHOOK] Failed to downgrade user: ${error.message}`);
       throw error;
@@ -233,7 +223,7 @@ export class WebhookController {
 
     this.logger.log(`⚠️ [WEBHOOK] Payment failed - Attempt ${invoice.attempt_count}/3 for subscription ${subscriptionId}`);
     
-    // Après 3 échecs, retourner au FREE
+    // Après 3 échecs, retourner au FREE (compteurs seront reset)
     if (invoice.attempt_count >= 3) {
       try {
         const stripeKey = this.configService.get<string>('STRIPE_SECRET_KEY');
@@ -247,9 +237,10 @@ export class WebhookController {
         
         const userId = subscription.metadata?.userId;
         if (userId) {
+          // ✨ Downgrade avec reset automatique des compteurs
           await this.subscriptionsService.upgradePlan(userId, SubscriptionPlan.FREE);
           await stripe.subscriptions.cancel(subscriptionId);
-          this.logger.log(`✅ [WEBHOOK] User ${userId} downgraded to FREE after payment failure`);
+          this.logger.log(`✅ [WEBHOOK] User ${userId} downgraded to FREE after payment failure with counters reset`);
         }
       } catch (error) {
         this.logger.error(`❌ [WEBHOOK] Failed to handle payment failure: ${error.message}`);
