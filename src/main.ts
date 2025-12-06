@@ -3,25 +3,31 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
-import { json } from 'express';
+import { json, raw } from 'express';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
-    rawBody: true, // ✅ Active le raw body pour tout l'app
+    rawBody: true, // ✅ Active le raw body
   });
 
-  // ✅ Configuration du JSON parser avec exclusion du webhook Stripe
+  // ✅ CRITICAL: Raw body parser pour Stripe AVANT tout autre middleware
+  // Ceci est ESSENTIEL pour Render et autres plateformes cloud
+  app.use('/webhooks/stripe', raw({ type: 'application/json' }));
+
+  // ✅ JSON parser pour tous les autres endpoints
+  // Le webhook Stripe est déjà géré par le middleware ci-dessus
   app.use(
     json({
       verify: (req: any, res, buf) => {
-        // Stocker le raw body pour le webhook Stripe
-        if (req.originalUrl === '/webhooks/stripe') {
+        // Stocker le raw body pour tous les endpoints (backup)
+        if (req.originalUrl && req.originalUrl.includes('/webhooks/stripe')) {
           req.rawBody = buf;
         }
       },
     }),
   );
 
+  // Validation globale
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
@@ -30,11 +36,13 @@ async function bootstrap() {
     }),
   );
 
+  // CORS
   app.enableCors({
     origin: process.env.FRONTEND_URL || '*',
     credentials: true,
   });
 
+  // Swagger documentation
   const config = new DocumentBuilder()
     .setTitle('Labasni API')
     .setDescription('API pour Labasni - Auth, IA, Style, Subscriptions')
