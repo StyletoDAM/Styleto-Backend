@@ -21,6 +21,11 @@ import logging
 import hashlib
 import cloudinary
 import cloudinary.uploader
+from dotenv import load_dotenv
+
+# ✨ AJOUTER : Charger le .env
+load_dotenv()
+
 
 # Configuration du logging
 logging.basicConfig(level=logging.INFO)
