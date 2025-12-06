@@ -95,7 +95,7 @@ export class SubscriptionsService {
     if (sub.currentUsage.month !== currentMonth) {
       // S'assurer que l'objet à pousser a bien tous les champs requis
       const usageToSave: MonthlyUsage = {
-        month: sub.currentUsage.month,
+        month: sub.currentUsage.month, // Garantir que month existe
         clothesDetectionUsed: sub.currentUsage.clothesDetectionUsed || 0,
         outfitSuggestionsUsed: sub.currentUsage.outfitSuggestionsUsed || 0,
         itemsSoldCount: sub.currentUsage.itemsSoldCount || 0,
@@ -221,14 +221,8 @@ export class SubscriptionsService {
   // UPGRADE
   // --------------------------
 
-  async upgradePlan(
-    userId: string, 
-    plan: SubscriptionPlan, 
-    stripe?: any, 
-    interval: 'month' | 'year' = 'month'
-  ) {
+  async upgradePlan(userId: string, plan: SubscriptionPlan, stripe?: any, interval: 'month' | 'year' = 'month') {
     const sub = await this.getSubscription(userId);
-    const previousPlan = sub.plan;
 
     sub.plan = plan;
     sub.subscribedAt = new Date();
@@ -236,26 +230,13 @@ export class SubscriptionsService {
     if (plan !== SubscriptionPlan.FREE) {
       const expiry = new Date();
       if (interval === 'year') {
-        expiry.setFullYear(expiry.getFullYear() + 1);
+        expiry.setFullYear(expiry.getFullYear() + 1); // ✨ +1 an
       } else {
-        expiry.setMonth(expiry.getMonth() + 1);
+        expiry.setMonth(expiry.getMonth() + 1); // ✨ +1 mois
       }
       sub.expiresAt = expiry;
     } else {
       sub.expiresAt = undefined;
-      
-      // ✨ NOUVEAU: Remettre les compteurs à zéro quand on downgrade vers FREE
-      // SEULEMENT si l'utilisateur avait un plan payant avant
-      if (previousPlan !== SubscriptionPlan.FREE) {
-        console.log(`🔄 [SubscriptionService] User ${userId} downgraded from ${previousPlan} to FREE - Resetting counters`);
-        
-        sub.currentUsage.clothesDetectionUsed = 0;
-        sub.currentUsage.outfitSuggestionsUsed = 0;
-        sub.currentUsage.itemsSoldCount = 0;
-        sub.currentUsage.lastReset = new Date();
-        
-        console.log(`✅ [SubscriptionService] Counters reset to 0 for user ${userId}`);
-      }
     }
 
     if (stripe) {
@@ -307,3 +288,4 @@ export class SubscriptionsService {
     };
   }
 }
+
