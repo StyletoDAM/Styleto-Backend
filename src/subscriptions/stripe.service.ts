@@ -30,44 +30,40 @@ export class StripeService {
     successUrl: string,
     cancelUrl: string,
     userId?: string,
-    interval: 'month' | 'year' = 'month', // ✨ NOUVEAU : Intervalle de facturation
+    interval: 'month' | 'year' = 'month',
   ) {
     this.logger.log(`Creating checkout session for plan: ${plan}, userId: ${userId}`);
 
-    // ✅ S'assurer que userId est bien une string
     const userIdString = userId ? String(userId) : '';
-    
     this.logger.log(`UserID converted to string: ${userIdString}`);
 
-    // ✅ Prix mensuels en TND (affichage) → convertis en centimes USD pour Stripe
+    // Prix mensuels en TND
     const monthlyPricesInTND: Record<SubscriptionPlan, number> = {
       [SubscriptionPlan.FREE]: 0,
-      [SubscriptionPlan.PREMIUM]: 30, // 30 TND/mois
-      [SubscriptionPlan.PRO_SELLER]: 90, // 90 TND/mois
+      [SubscriptionPlan.PREMIUM]: 30,
+      [SubscriptionPlan.PRO_SELLER]: 90,
     };
 
-    // ✅ Prix annuels en TND avec 20% de réduction
+    // Prix annuels en TND avec 20% de réduction
     const annualPricesInTND: Record<SubscriptionPlan, number> = {
       [SubscriptionPlan.FREE]: 0,
-      [SubscriptionPlan.PREMIUM]: Math.round(30 * 12 * 0.8), // 288 TND/an (20% de réduction)
-      [SubscriptionPlan.PRO_SELLER]: Math.round(90 * 12 * 0.8), // 864 TND/an (20% de réduction)
+      [SubscriptionPlan.PREMIUM]: Math.round(30 * 12 * 0.8), // 288 TND/an
+      [SubscriptionPlan.PRO_SELLER]: Math.round(90 * 12 * 0.8), // 864 TND/an
     };
 
-    // ✅ Conversion approximative TND → USD (1 TND ≈ 0.32 USD)
+    // Conversion TND → USD
     const monthlyPricesInUSDCents: Record<SubscriptionPlan, number> = {
       [SubscriptionPlan.FREE]: 0,
       [SubscriptionPlan.PREMIUM]: 999, // ~10 USD
       [SubscriptionPlan.PRO_SELLER]: 2899, // ~29 USD
     };
 
-    // ✅ Prix annuels en USD avec 20% de réduction
     const annualPricesInUSDCents: Record<SubscriptionPlan, number> = {
       [SubscriptionPlan.FREE]: 0,
-      [SubscriptionPlan.PREMIUM]: Math.round(999 * 12 * 0.8), // ~9600 USD cents
-      [SubscriptionPlan.PRO_SELLER]: Math.round(2899 * 12 * 0.8), // ~27830 USD cents
+      [SubscriptionPlan.PREMIUM]: Math.round(999 * 12 * 0.8),
+      [SubscriptionPlan.PRO_SELLER]: Math.round(2899 * 12 * 0.8),
     };
 
-    // ✨ Sélectionner les prix selon l'intervalle
     const pricesInTND = interval === 'year' ? annualPricesInTND : monthlyPricesInTND;
     const pricesInUSDCents = interval === 'year' ? annualPricesInUSDCents : monthlyPricesInUSDCents;
 
@@ -87,15 +83,13 @@ export class StripeService {
       [SubscriptionPlan.PRO_SELLER]: 'Toutes les fonctionnalités + Vente illimitée',
     };
 
-    // ✨ NOUVEAU : Nom et description selon l'intervalle
-    const intervalLabel = interval === 'year' ? 'an' : 'mois';
     const intervalText = interval === 'year' ? 'annuel' : 'mensuel';
     const productName = interval === 'year' 
       ? `${planNames[plan]} - ${pricesInTND[plan]} TND/an (Économisez 20%!)`
       : `${planNames[plan]} - ${pricesInTND[plan]} TND/mois`;
 
     try {
-      // ✅ Création de la session Stripe avec metadata en string
+      // ✨ MODIFICATION IMPORTANTE : Ajouter subscription_data pour copier les metadata
       const session = await this.stripe.checkout.sessions.create({
         payment_method_types: ['card'],
         line_items: [
@@ -103,13 +97,13 @@ export class StripeService {
             price_data: {
               currency: 'usd',
               product_data: {
-                name: productName, // ✨ Utiliser le nom dynamique
+                name: productName,
                 description: `${planDescriptions[plan]} - Paiement ${intervalText}`,
                 images: ['https://i.imgur.com/EbQKFLt.png'],
               },
               unit_amount: pricesInUSDCents[plan],
               recurring: {
-                interval: interval, // ✨ Utiliser le paramètre interval
+                interval: interval,
               },
             },
             quantity: 1,
@@ -118,15 +112,28 @@ export class StripeService {
         mode: 'subscription',
         success_url: successUrl,
         cancel_url: cancelUrl,
+        
+        // ✅ Metadata sur la session (pour checkout.session.completed)
         metadata: {
           plan: plan,
-          userId: userIdString, // ✅ Toujours une string
+          userId: userIdString,
           priceDisplayedTND: pricesInTND[plan].toString(),
-          interval: interval, // ✨ NOUVEAU : Stocker l'intervalle dans metadata
+          interval: interval,
+        },
+        
+        // ✨ NOUVEAU : Copier les metadata vers la subscription automatiquement
+        subscription_data: {
+          metadata: {
+            plan: plan,
+            userId: userIdString,
+            priceDisplayedTND: pricesInTND[plan].toString(),
+            interval: interval,
+          },
         },
       });
 
-      this.logger.log(`Checkout session created: ${session.id}`);
+      this.logger.log(`✅ Checkout session created: ${session.id}`);
+      this.logger.log(`   📦 Plan: ${plan}, User: ${userIdString}, Interval: ${interval}`);
 
       return { 
         url: session.url, 
@@ -134,10 +141,10 @@ export class StripeService {
         displayPrice: interval === 'year' 
           ? `${pricesInTND[plan]} TND/an (Économisez 20%!)`
           : `${pricesInTND[plan]} TND/mois`,
-        interval: interval, // ✨ NOUVEAU : Retourner l'intervalle
+        interval: interval,
       };
     } catch (error) {
-      this.logger.error(`Error creating checkout session: ${error.message}`);
+      this.logger.error(`❌ Error creating checkout session: ${error.message}`);
       throw new BadRequestException(`Failed to create checkout session: ${error.message}`);
     }
   }
@@ -148,7 +155,6 @@ export class StripeService {
   constructWebhookEvent(payload: Buffer, signature: string): Stripe.Event {
     if (!this.webhookSecret) {
       this.logger.warn('⚠️ STRIPE_WEBHOOK_SECRET non défini, webhook non sécurisé');
-      // En développement, on peut parser directement
       return JSON.parse(payload.toString()) as Stripe.Event;
     }
 
@@ -176,7 +182,7 @@ export class StripeService {
       priceDisplayedTND: session.metadata?.priceDisplayedTND,
       subscriptionId: session.subscription as string,
       customerId: session.customer as string,
-      interval: (session.metadata?.interval as 'month' | 'year') || 'month', // ✨ NOUVEAU : Récupérer l'intervalle
+      interval: (session.metadata?.interval as 'month' | 'year') || 'month',
     };
   }
 
